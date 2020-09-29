@@ -1,0 +1,41 @@
+{
+  "name": "micro-servicio",
+  "version": "1.0.0",
+  "description": "Microservicio de prueba utilizando node JS",
+  "main": "index.js",
+  "scripts": {
+    "start": "set NODE_ENV=production & node dist/index.js",
+    "dev": "set DEBUG=api:* & nodemon dist/index.js"
+  },
+  "keywords": [
+    "API",
+    "REST",
+    "MicroServicios"
+  ],
+  "author": "Antonio Amador",
+  "license": "MIT",
+  "dependencies": {
+    "@types/mongodb": "^3.5.4",
+    "@types/node": "^13.5.0",
+    "bcryptjs": "^2.4.3",
+    "body-parser": "^1.19.0",
+    "chalk": "^3.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.17.1",
+    "i": "^0.3.6",
+    "jsonwebtoken": "^8.5.1",
+    "mongodb": "^3.5.5",
+    "multer": "^1.4.2",
+    "npm": "^6.14.8",
+    "socket.io": "^2.3.0",
+    "uuid": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.6",
+    "@types/express": "^4.17.2",
+    "@types/jsonwebtoken": "^8.3.8",
+    "@types/multer": "^1.4.4",
+    "@types/socket.io": "^2.1.8",
+    "@types/uuid": "^8.3.0"
+  }
+}
