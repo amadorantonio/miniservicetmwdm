@@ -19,4 +19,18 @@ export default {
         USER_PASSWORD: 'operador123',
         DEFAULT_DATABASE: 'presidencia'
     }
+    // MONGODB: {
+    //     HOST: '192.168.91.130',
+    //     PORT: 27017,
+    //     USER_NAME: 'presidencia',
+    //     USER_PASSWORD: 'Tjen-681223!',
+    //     DEFAULT_DATABASE: 'presidencia'
+    // }
+    // MONGODB: {
+    //     HOST: '10.1.200.37',
+    //     PORT: 27017,
+    //     USER_NAME: 'presidencia',
+    //     USER_PASSWORD: 'Tjen-681223!',
+    //     DEFAULT_DATABASE: 'presidencia'
+    // }
 };

@@ -20,6 +20,10 @@ import http from 'http';
 
 import multer from './utils/multer'
 
+import { v4 as uuidv4 } from 'uuid';
+
+import moment from 'moment';
+
 const token = AuthToken(ENV);
 
 //MongoDB helper import
@@ -81,7 +85,7 @@ app.post('/login', async (req: Request, res: Response, next) => {
                 id: user._id,
                 roles: mockRoles
             }
-            jwt.sign(payload, ENV.TOKEN.SECRET_KEY, { expiresIn: ENV.TOKEN.EXPIRES }, (err, token) => {
+            jwt.sign(payload, ENV.TOKEN.SECRET_KEY, { expiresIn: ENV.TOKEN.EXPIRES }, async (err, token) => {
                 //Existe el Error
                 if(err){
                     return res.status(500).json(
@@ -94,6 +98,9 @@ app.post('/login', async (req: Request, res: Response, next) => {
                     )
                 }
                 // OK
+                let notificacion = { fecha: moment(new Date()).format('DD/MM/YYYY HH:mm'), text: `${user.username} ha iniciado sesión`, username: user.username }
+                const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
+                io.emit('login', insert.insertedId);
                 res.status(200).json(
                     apiUtils.BodyResponse(
                         apiStatusEnum.Succes, 
@@ -142,9 +149,6 @@ app.get('/products', token.verify, async (req: Request, res: Response) => {
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
  
     const productos = await mongodb.db.collection('cars').find({}).toArray();
-    console.log('api-productos', productos);
-    console.log('api-productos');
-
     res.status(200).json(
          apiUtils.BodyResponse(
              apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
@@ -184,7 +188,6 @@ app.get('/bitacoraCharts', token.verify, async (req: Request, res: Response) => 
         var date = new Date(bitacora[i].Fecha);
         bitacora[i].mesNumero = date.getMonth() + 1;
         bitacora[i].mesNombre = meses[date.getMonth()];
-        // console.log(date, meses[date.getMonth()], date.getMonth());
     }
 
     //Ordenamiento
@@ -213,8 +216,6 @@ app.get('/bitacoraCharts', token.verify, async (req: Request, res: Response) => 
     }
 
     chartData[0] = {data: arrayData, label: 'Elementos de bitácora'};
-
-    console.log(arrayTableResult);
 
     res.status(200).json(
          apiUtils.BodyResponse(
@@ -287,7 +288,7 @@ app.put('/bitacora', token.verify, async (req: Request, res: Response) => {
     });
 
     //envío de comunicación a todos los clientes conectados
-    io.emit('edicion-elemento-bitacora', 'Le informamos que se editó un elemento de bitácora');
+    // io.emit('edicion-elemento-bitacora', 'Le informamos que se editó un elemento de bitácora');
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -318,7 +319,7 @@ app.put('/bitacora/delete', token.verify, async (req: Request, res: Response) =>
     });
 
     //envío de comunicación a todos los clientes conectados
-    io.emit('edicion-elemento-bitacora', 'Le informamos que se editó un elemento de bitácora');
+    // io.emit('edicion-elemento-bitacora', 'Le informamos que se editó un elemento de bitácora');
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -372,6 +373,7 @@ app.post('/solicitudinformacion', token.verify, multer.array('documents'), async
 
     
     let body = req.body
+    let usuario = req.body['usuarioCreacion']
     let filesArray: any[] = []
     if(req.files){
         let data: any = req.files; 
@@ -388,22 +390,25 @@ app.post('/solicitudinformacion', token.verify, multer.array('documents'), async
             })
         }
         req.body['files'] = filesArray
-    }
+    } 
 
-    await mongodb.db.collection('solicitudes-informacion').insertOne(req.body);
+    await mongodb.db.collection('solicitudes-informacion').insertOne(req.body, async function (err:any,result:any) {
 
-    //envío de comunicación a todos los clientes conectados
-    io.emit('alta-solicitud-informacion', 'Le informamos que se agregó un nuevo elemento de solicitud de información');
+        //envío de comunicación a todos los clientes conectados
+        let notificacion = { fecha: moment(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó un nuevo elemento de solicitud de información`, username: usuario }
+        const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
+        io.emit('alta-solicitud-informacion', insert.insertedId);
 
-    res.status(200).json(
-        apiUtils.BodyResponse(
-            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
-            {
-                 body,
-                 authUser: req.body.authUser
-            }
-        )
-    ); 
+        res.status(200).json(
+            apiUtils.BodyResponse(
+                apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+                {
+                    body,
+                    authUser: req.body.authUser
+                }
+            )
+        ); 
+    });
 })
 
 app.put('/solicitudinformacion', token.verify, multer.array('documents'), async (req: Request, res: Response) => {
@@ -443,7 +448,7 @@ app.put('/solicitudinformacion', token.verify, multer.array('documents'), async 
     });
 
     //envío de comunicación a todos los clientes conectados
-    io.emit('alta-solicitud-informacion', 'Le informamos que se agregó un nuevo elemento de solicitud de información');
+    // io.emit('alta-solicitud-informacion', 'Le informamos que se agregó un nuevo elemento de solicitud de información');
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -578,7 +583,6 @@ app.get('/products/categoria/:categoria', async (req: Request, res: Response) =>
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     
     //const productos = await mongodb.db.collection('cars').find({'categoria': {'$regex': categoria, '$options': 'i'}}).toArray();
-    //console.log('api-productos', productos);
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -599,7 +603,6 @@ app.get('/products/:code', async (req: Request, res: Response) => {
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     
     //const productos = await mongodb.db.collection('cars').findOne({ 'codigo': code});
-    //console.log('api-productos', productos);
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -620,7 +623,6 @@ app.get('/products/buscar/:criterio', async (req: Request, res: Response) => {
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     
     //const productos = await mongodb.db.collection('cars').find({'descripcion': {'$regex': criterio, '$options': 'i'}}).toArray();
-    //console.log('api-productos', productos);
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -633,10 +635,10 @@ app.get('/products/buscar/:criterio', async (req: Request, res: Response) => {
     );
 });
 
-app.post('/reunion', token.verify, multer.array('documents'), async (req: Request, res: Response) => {
+app.post('/reunion', token.verify, multer.array('documents'), async (req: Request, res: Response) => { 
 
-    
     let body = req.body
+    let usuario = req.body['usuarioCreacion']
     let filesArray: any[] = []
     if(req.files){
         let data: any = req.files; 
@@ -655,8 +657,11 @@ app.post('/reunion', token.verify, multer.array('documents'), async (req: Reques
         req.body['files'] = filesArray
     }
 
-    await mongodb.db.collection('reuniones').insertOne(req.body, function (err:any,result:any){
-        io.emit('alta-reunion', 'Le informamos que se agregó una reunión');
+    await mongodb.db.collection('reuniones').insertOne(req.body, async function (err:any,result:any){
+        
+        let notificacion = { fecha: moment(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó una reunión`, username: usuario }
+        const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
+        io.emit('alta-reunion', insert.insertedId);
 
         res.status(200).json(
             apiUtils.BodyResponse(
@@ -739,7 +744,7 @@ app.put('/reunion', token.verify, multer.array('documents'), async (req: Request
     });
 
     //envío de comunicación a todos los clientes conectados
-    io.emit('edicion-reunion', 'Le informamos que se edito un elemento de reunión');
+    // io.emit('edicion-reunion', 'Le informamos que se edito un elemento de reunión');
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -807,8 +812,246 @@ app.put('/reunion/delete', token.verify, async (req: Request, res: Response) => 
     );
 })
 
+app.get('/areas', token.verify, async (req: Request, res: Response) => {
+    
+    const areas = await mongodb.db.collection('areas').find({}).sort({"nombre" : 1}).toArray();
 
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                areas
+            }
+        )
+    );
+});
 
+app.get('/areas/:id', token.verify, async (req: Request, res: Response) => {
+    
+    const { id } = req.params;
+
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    
+    const area = await mongodb.db.collection('areas').findOne({ "_id" : new ObjectId(id) });
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                area
+            }
+        )
+    );
+});
+
+app.put('/areas/solicitud/add', token.verify, multer.array('documents'), async (req: Request, res: Response) => {
+
+    const idArea = req.body.idArea
+    delete req.body.idArea
+    const solicitud = req.body
+    solicitud['_id'] = uuidv4()
+
+    let filesArray: any[] = []
+    if(req.files){
+        let data: any = req.files; 
+        let files = req.files;
+        let index, len;
+        for (index = 0, len = files.length; index < len; ++index) {
+            filesArray.push({
+                'originalname': data[index].originalname, 
+                'mimetype': data[index].mimetype,
+                'filename': data[index].filename,
+                'path': data[index].path,
+                'size': data[index].size,
+                'uploadDate': new Date().toLocaleString()
+            })
+        }
+        solicitud['files'] = filesArray
+    }
+
+    await mongodb.db.collection('areas').updateOne({
+        "_id" : new ObjectId(idArea)
+    },
+    
+    // update 
+    {$push: {'solicitudes': solicitud}},
+    
+    // options 
+    {
+        "multi" : false,  // update only one document 
+        "upsert" : false  // insert a new document, if no existing document match the query 
+    }); 
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                idArea
+            }
+        )
+    );
+})
+
+app.get('/areas/solicitud/:idArea/:idSolicitud', token.verify, async (req: Request, res: Response) => {
+    
+    const { idArea, idSolicitud } = req.params;
+
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+
+    
+    const area = await mongodb.db.collection('areas').findOne({ "_id" : new ObjectId(idArea), "solicitudes._id": idSolicitud });
+
+    const solicitud = area['solicitudes'].find((x: { _id: string; }) => x._id === idSolicitud)
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                solicitud
+            } 
+        )
+    );
+});
+
+app.put('/areas/solicitud/edit', token.verify, multer.array('documents'), async (req: Request, res: Response) => {
+
+    const idArea = req.body.idArea
+    const _id = req.body._id
+    delete req.body.idArea
+    const solicitud = req.body
+    let files = JSON.parse(req.body['files'])
+
+    if(req.files){
+        let newFiles: any = req.files;
+        for (let index = 0; index < newFiles.length; ++index) {
+            files.push({
+                'originalname': newFiles[index].originalname,
+                'mimetype': newFiles[index].mimetype,
+                'filename': newFiles[index].filename,
+                'path': newFiles[index].path,
+                'size': newFiles[index].size,
+                'uploadDate': new Date().toLocaleString()
+            })
+        }
+    }
+
+    req.body['files'] = files
+
+    const query = { "_id" : new ObjectId(idArea), "solicitudes._id": _id }
+
+    const updateDocument = { 
+        $set : { "solicitudes.$":  solicitud}
+    }
+ 
+    const options = {
+        "multi" : false,
+        "upsert" : false
+    }
+
+    const result = await mongodb.db.collection('areas').updateOne(query, updateDocument, options)
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                idArea
+            }
+        )
+    );
+})
+
+app.get('/notificaciones', token.verify, async (req: Request, res: Response) => {
+    
+    // const areas = await mongodb.db.collection('areas').find({}).sort({"nombre" : 1}).toArray();
+
+    const areas = await mongodb.db.collection('areas').find({}).sort({"nombre" : 1}).toArray()
+    
+
+    let solicitudesAreas: any[] = [] 
+
+    areas.map((area: any) => {
+
+        area['solicitudes'].map((solicitud: any) => {
+
+            if(solicitud['estatus'] === 'Pendiente'){
+                let fechaLimite = moment(solicitud['fechaLimite'])
+                let diferenciaFechas = `${fechaLimite.diff(new Date, 'days')} días`
+                let numDiferenciaFechas = fechaLimite.diff(new Date, 'days')
+
+                return {
+                    tipo: 'Solicitud a área para informe',
+                    fecha: fechaLimite.format('DD/MM/YYYY HH:mm'),
+                    diferenciaFechas: diferenciaFechas,
+                    numDiferenciaFechas: numDiferenciaFechas,
+                    texto: `${solicitud['nombre']} - ${area['nombre']}`
+                }
+            }
+        }).forEach((area: any) => {
+            if(area){
+                solicitudesAreas.push(area)
+            }
+        })
+    })
+
+    const solicitudesInformacion = await mongodb.db.collection('solicitudes-informacion').find({'activo': '1'}).sort({"fechaRecepcion" : -1}).toArray();
+
+    let solicitudesTermino: any[] = []
+
+    solicitudesInformacion.map((solicitud: any) => {
+
+        if(solicitud['estatus'] === 'Pendiente'){
+
+            let fechaLimite = moment(solicitud['fechaLimite'])
+            let diferenciaFechas = `${fechaLimite.diff(new Date, 'days')} días`
+            let numDiferenciaFechas = fechaLimite.diff(new Date, 'days')
+
+            return{
+                tipo: 'Solicitud de información',
+                fecha: fechaLimite.format('DD/MM/YYYY HH:mm'),
+                diferenciaFechas: diferenciaFechas,
+                numDiferenciaFechas: numDiferenciaFechas,
+                texto: `${solicitud['solicitud']} - ${solicitud['solicitante']}`
+            }
+        }
+    }).forEach((solicitud: any) => {
+        if(solicitud){
+            solicitudesTermino.push(solicitud)
+        }
+    })
+
+    let notificaciones = solicitudesAreas.concat(solicitudesTermino)
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                notificaciones
+            }
+        )
+    );
+});
+
+app.get('/notificaciones/:idNotificacion', token.verify, async (req: Request, res: Response) => {
+    
+    const { idNotificacion } = req.params;
+
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+
+    
+    const notificacion = await mongodb.db.collection('notificaciones').findOne({ "_id" : new ObjectId(idNotificacion) });
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                notificacion
+            } 
+        )
+    );
+});
 //Start Express Server
 // app.listen(ENV.API.PORT, async() => {
 //     //Conectando con MongoDB

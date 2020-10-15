@@ -49,6 +49,8 @@ const socket_io_1 = __importDefault(require("socket.io"));
 const socket = __importStar(require("./sockets/socket"));
 const http_1 = __importDefault(require("http"));
 const multer_1 = __importDefault(require("./utils/multer"));
+const uuid_1 = require("uuid");
+const moment_1 = __importDefault(require("moment"));
 const token = token_middleware_1.default(env_production_1.default);
 //MongoDB helper import
 const mongodb_helpers_1 = __importDefault(require("./helpers/mongodb.helpers"));
@@ -91,17 +93,20 @@ app.post('/login', (req, res, next) => __awaiter(void 0, void 0, void 0, functio
                 id: user._id,
                 roles: mockRoles
             };
-            jsonwebtoken_1.default.sign(payload, env_production_1.default.TOKEN.SECRET_KEY, { expiresIn: env_production_1.default.TOKEN.EXPIRES }, (err, token) => {
+            jsonwebtoken_1.default.sign(payload, env_production_1.default.TOKEN.SECRET_KEY, { expiresIn: env_production_1.default.TOKEN.EXPIRES }, (err, token) => __awaiter(void 0, void 0, void 0, function* () {
                 //Existe el Error
                 if (err) {
                     return res.status(500).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Internal_Server_Error, 'Internal Server Error', 'Error al intentar crear el Token', null, err));
                 }
                 // OK
+                let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `${user.username} ha iniciado sesión`, username: user.username };
+                const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+                io.emit('login', insert.insertedId);
                 res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'Token generado de forma correcta', {
                     "user": { "username": user.username, "nombre": user.nombre },
                     token
                 }, null));
-            });
+            }));
         }
         else {
             res.status(403).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Forbidden, 'La solicitud fue legal, pero el servidor rehúsa responderla dado que el cliente no tiene los privilegios para realizarla.' + req.body.username, 'Credenciales invalidas. El usuario y/o contraseña no son válidos, fabor de verificar.', {}, null));
@@ -115,8 +120,6 @@ app.get('/products', token.verify, (req, res) => __awaiter(void 0, void 0, void 
     res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     const productos = yield mongodb.db.collection('cars').find({}).toArray();
-    console.log('api-productos', productos);
-    console.log('api-productos');
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         productos,
         authUser: req.body.authUser
@@ -139,7 +142,6 @@ app.get('/bitacoraCharts', token.verify, (req, res) => __awaiter(void 0, void 0,
         var date = new Date(bitacora[i].Fecha);
         bitacora[i].mesNumero = date.getMonth() + 1;
         bitacora[i].mesNombre = meses[date.getMonth()];
-        // console.log(date, meses[date.getMonth()], date.getMonth());
     }
     //Ordenamiento
     bitacora.sort(function (a, b) {
@@ -159,7 +161,6 @@ app.get('/bitacoraCharts', token.verify, (req, res) => __awaiter(void 0, void 0,
         arrayData.push(bitacora.filter(function (o) { return o.mesNumero == arrayUniqueByKey[i]['mesNumero']; }).length);
     }
     chartData[0] = { data: arrayData, label: 'Elementos de bitácora' };
-    console.log(arrayTableResult);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         arrayTableResult,
         arrayLabels,
@@ -200,7 +201,7 @@ app.put('/bitacora', token.verify, (req, res) => __awaiter(void 0, void 0, void 
         "upsert": false // insert a new document, if no existing document match the query 
     });
     //envío de comunicación a todos los clientes conectados
-    io.emit('edicion-elemento-bitacora', 'Le informamos que se editó un elemento de bitácora');
+    // io.emit('edicion-elemento-bitacora', 'Le informamos que se editó un elemento de bitácora');
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         bitacora
     }));
@@ -219,7 +220,7 @@ app.put('/bitacora/delete', token.verify, (req, res) => __awaiter(void 0, void 0
         "upsert": false // insert a new document, if no existing document match the query 
     });
     //envío de comunicación a todos los clientes conectados
-    io.emit('edicion-elemento-bitacora', 'Le informamos que se editó un elemento de bitácora');
+    // io.emit('edicion-elemento-bitacora', 'Le informamos que se editó un elemento de bitácora');
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         idElementoBitacora
     }));
@@ -245,6 +246,7 @@ app.get('/solicitudinformacion', token.verify, (req, res) => __awaiter(void 0, v
 }));
 app.post('/solicitudinformacion', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     let body = req.body;
+    let usuario = req.body['usuarioCreacion'];
     let filesArray = [];
     if (req.files) {
         let data = req.files;
@@ -262,13 +264,18 @@ app.post('/solicitudinformacion', token.verify, multer_1.default.array('document
         }
         req.body['files'] = filesArray;
     }
-    yield mongodb.db.collection('solicitudes-informacion').insertOne(req.body);
-    //envío de comunicación a todos los clientes conectados
-    io.emit('alta-solicitud-informacion', 'Le informamos que se agregó un nuevo elemento de solicitud de información');
-    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
-        body,
-        authUser: req.body.authUser
-    }));
+    yield mongodb.db.collection('solicitudes-informacion').insertOne(req.body, function (err, result) {
+        return __awaiter(this, void 0, void 0, function* () {
+            //envío de comunicación a todos los clientes conectados
+            let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó un nuevo elemento de solicitud de información`, username: usuario };
+            const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+            io.emit('alta-solicitud-informacion', insert.insertedId);
+            res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                body,
+                authUser: req.body.authUser
+            }));
+        });
+    });
 }));
 app.put('/solicitudinformacion', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const id = req.body._id;
@@ -300,7 +307,7 @@ app.put('/solicitudinformacion', token.verify, multer_1.default.array('documents
         "upsert": false // insert a new document, if no existing document match the query 
     });
     //envío de comunicación a todos los clientes conectados
-    io.emit('alta-solicitud-informacion', 'Le informamos que se agregó un nuevo elemento de solicitud de información');
+    // io.emit('alta-solicitud-informacion', 'Le informamos que se agregó un nuevo elemento de solicitud de información');
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         solicitud,
         authUser: req.body.authUser
@@ -376,7 +383,6 @@ app.get('/products/categoria/:categoria', (req, res) => __awaiter(void 0, void 0
     res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     //const productos = await mongodb.db.collection('cars').find({'categoria': {'$regex': categoria, '$options': 'i'}}).toArray();
-    //console.log('api-productos', productos);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         //productos,
         authUser: req.body.authUser
@@ -387,7 +393,6 @@ app.get('/products/:code', (req, res) => __awaiter(void 0, void 0, void 0, funct
     res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     //const productos = await mongodb.db.collection('cars').findOne({ 'codigo': code});
-    //console.log('api-productos', productos);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         //productos,
         authUser: req.body.authUser
@@ -398,7 +403,6 @@ app.get('/products/buscar/:criterio', (req, res) => __awaiter(void 0, void 0, vo
     res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     //const productos = await mongodb.db.collection('cars').find({'descripcion': {'$regex': criterio, '$options': 'i'}}).toArray();
-    //console.log('api-productos', productos);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         //productos,
         authUser: req.body.authUser
@@ -406,6 +410,7 @@ app.get('/products/buscar/:criterio', (req, res) => __awaiter(void 0, void 0, vo
 }));
 app.post('/reunion', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     let body = req.body;
+    let usuario = req.body['usuarioCreacion'];
     let filesArray = [];
     if (req.files) {
         let data = req.files;
@@ -424,10 +429,14 @@ app.post('/reunion', token.verify, multer_1.default.array('documents'), (req, re
         req.body['files'] = filesArray;
     }
     yield mongodb.db.collection('reuniones').insertOne(req.body, function (err, result) {
-        io.emit('alta-reunion', 'Le informamos que se agregó una reunión');
-        res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
-            result
-        }));
+        return __awaiter(this, void 0, void 0, function* () {
+            let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó una reunión`, username: usuario };
+            const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+            io.emit('alta-reunion', insert.insertedId);
+            res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                result
+            }));
+        });
     });
 }));
 app.get('/reunion', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -475,7 +484,7 @@ app.put('/reunion', token.verify, multer_1.default.array('documents'), (req, res
         "upsert": false // insert a new document, if no existing document match the query 
     });
     //envío de comunicación a todos los clientes conectados
-    io.emit('edicion-reunion', 'Le informamos que se edito un elemento de reunión');
+    // io.emit('edicion-reunion', 'Le informamos que se edito un elemento de reunión');
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         reunion
     }));
@@ -512,6 +521,158 @@ app.put('/reunion/delete', token.verify, (req, res) => __awaiter(void 0, void 0,
     });
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         idReunion
+    }));
+}));
+app.get('/areas', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const areas = yield mongodb.db.collection('areas').find({}).sort({ "nombre": 1 }).toArray();
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        areas
+    }));
+}));
+app.get('/areas/:id', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const area = yield mongodb.db.collection('areas').findOne({ "_id": new mongodb_1.ObjectId(id) });
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        area
+    }));
+}));
+app.put('/areas/solicitud/add', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idArea = req.body.idArea;
+    delete req.body.idArea;
+    const solicitud = req.body;
+    solicitud['_id'] = uuid_1.v4();
+    let filesArray = [];
+    if (req.files) {
+        let data = req.files;
+        let files = req.files;
+        let index, len;
+        for (index = 0, len = files.length; index < len; ++index) {
+            filesArray.push({
+                'originalname': data[index].originalname,
+                'mimetype': data[index].mimetype,
+                'filename': data[index].filename,
+                'path': data[index].path,
+                'size': data[index].size,
+                'uploadDate': new Date().toLocaleString()
+            });
+        }
+        solicitud['files'] = filesArray;
+    }
+    yield mongodb.db.collection('areas').updateOne({
+        "_id": new mongodb_1.ObjectId(idArea)
+    }, 
+    // update 
+    { $push: { 'solicitudes': solicitud } }, 
+    // options 
+    {
+        "multi": false,
+        "upsert": false // insert a new document, if no existing document match the query 
+    });
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        idArea
+    }));
+}));
+app.get('/areas/solicitud/:idArea/:idSolicitud', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { idArea, idSolicitud } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const area = yield mongodb.db.collection('areas').findOne({ "_id": new mongodb_1.ObjectId(idArea), "solicitudes._id": idSolicitud });
+    const solicitud = area['solicitudes'].find((x) => x._id === idSolicitud);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        solicitud
+    }));
+}));
+app.put('/areas/solicitud/edit', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idArea = req.body.idArea;
+    const _id = req.body._id;
+    delete req.body.idArea;
+    const solicitud = req.body;
+    let files = JSON.parse(req.body['files']);
+    if (req.files) {
+        let newFiles = req.files;
+        for (let index = 0; index < newFiles.length; ++index) {
+            files.push({
+                'originalname': newFiles[index].originalname,
+                'mimetype': newFiles[index].mimetype,
+                'filename': newFiles[index].filename,
+                'path': newFiles[index].path,
+                'size': newFiles[index].size,
+                'uploadDate': new Date().toLocaleString()
+            });
+        }
+    }
+    req.body['files'] = files;
+    const query = { "_id": new mongodb_1.ObjectId(idArea), "solicitudes._id": _id };
+    const updateDocument = {
+        $set: { "solicitudes.$": solicitud }
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('areas').updateOne(query, updateDocument, options);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        idArea
+    }));
+}));
+app.get('/notificaciones', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    // const areas = await mongodb.db.collection('areas').find({}).sort({"nombre" : 1}).toArray();
+    const areas = yield mongodb.db.collection('areas').find({}).sort({ "nombre": 1 }).toArray();
+    let solicitudesAreas = [];
+    areas.map((area) => {
+        area['solicitudes'].map((solicitud) => {
+            if (solicitud['estatus'] === 'Pendiente') {
+                let fechaLimite = moment_1.default(solicitud['fechaLimite']);
+                let diferenciaFechas = `${fechaLimite.diff(new Date, 'days')} días`;
+                let numDiferenciaFechas = fechaLimite.diff(new Date, 'days');
+                return {
+                    tipo: 'Solicitud a área para informe',
+                    fecha: fechaLimite.format('DD/MM/YYYY HH:mm'),
+                    diferenciaFechas: diferenciaFechas,
+                    numDiferenciaFechas: numDiferenciaFechas,
+                    texto: `${solicitud['nombre']} - ${area['nombre']}`
+                };
+            }
+        }).forEach((area) => {
+            if (area) {
+                solicitudesAreas.push(area);
+            }
+        });
+    });
+    const solicitudesInformacion = yield mongodb.db.collection('solicitudes-informacion').find({ 'activo': '1' }).sort({ "fechaRecepcion": -1 }).toArray();
+    let solicitudesTermino = [];
+    solicitudesInformacion.map((solicitud) => {
+        if (solicitud['estatus'] === 'Pendiente') {
+            let fechaLimite = moment_1.default(solicitud['fechaLimite']);
+            let diferenciaFechas = `${fechaLimite.diff(new Date, 'days')} días`;
+            let numDiferenciaFechas = fechaLimite.diff(new Date, 'days');
+            return {
+                tipo: 'Solicitud de información',
+                fecha: fechaLimite.format('DD/MM/YYYY HH:mm'),
+                diferenciaFechas: diferenciaFechas,
+                numDiferenciaFechas: numDiferenciaFechas,
+                texto: `${solicitud['solicitud']} - ${solicitud['solicitante']}`
+            };
+        }
+    }).forEach((solicitud) => {
+        if (solicitud) {
+            solicitudesTermino.push(solicitud);
+        }
+    });
+    let notificaciones = solicitudesAreas.concat(solicitudesTermino);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        notificaciones
+    }));
+}));
+app.get('/notificaciones/:idNotificacion', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { idNotificacion } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const notificacion = yield mongodb.db.collection('notificaciones').findOne({ "_id": new mongodb_1.ObjectId(idNotificacion) });
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        notificacion
     }));
 }));
 //Start Express Server
