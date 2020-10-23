@@ -31,12 +31,24 @@ import MongoDBHelper from './helpers/mongodb.helpers';
 
 import path from 'path'
 
+const nodemailer = require("nodemailer");
+
+var transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false, // true for 465, false for other ports
+    auth: {
+      user: "antonio.amador@poderjudicial-gto.gob.mx", // generated ethereal user
+      pass: "1dragon2negro3",
+    } // generated ethereal password
+});
+
 const debug = DEBUG();
 const color = COLOR();
 const app = Express();
 
 const httpServer = new http.Server(app);
-const io = socketIO(httpServer);
+const io = socketIO(httpServer); 
 
 console.log('Escuchando conexiones - sockets');
 io.on('connection', cliente => {
@@ -49,6 +61,7 @@ io.on('connection', cliente => {
 
 import bodyParser, { json } from 'body-parser'
 import { ObjectId } from 'mongodb';
+import { error, info } from 'console';
 
 const apiUtils = APIUtils(ENV);
 const mongodb = MongoDBHelper.getInstance(ENV);
@@ -61,6 +74,10 @@ app.use(bodyParser.urlencoded({extended: true}));
 
 //Cors
 app.use( cors({ origin: true, credentials: true}));
+
+
+
+
 
 app.use('/uploads', [token.verify, Express.static(path.resolve('uploads'))])
 //app.use('/uploads', [Express.static(path.resolve('uploads'))])
@@ -231,10 +248,18 @@ app.get('/bitacoraCharts', token.verify, async (req: Request, res: Response) => 
 });
 
 app.post('/bitacora', token.verify, async (req: Request, res: Response) => {
+
+    delete req.body._id
+    let usuario = req.body['usuarioCreacion']
+    
     await mongodb.db.collection('bitacora').insertOne(req.body);
 
+    let notificacion = { fecha: moment(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó un elemento de bitácora`, username: usuario }
+    const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('alta-bitacora', insert.insertedId);
+
     //envío de comunicación a todos los clientes conectados
-    io.emit('alta-bitacora', 'Le informamos que se agregó un nuevo elemento de bitácora');
+    // io.emit('alta-bitacora', 'Le informamos que se agregó un nuevo elemento de bitácora');
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -272,7 +297,7 @@ app.put('/bitacora', token.verify, async (req: Request, res: Response) => {
     delete req.body._id
     const bitacora = req.body
 
-
+    console.log(bitacora)
 
     await mongodb.db.collection('bitacora').update({
         "_id" : new ObjectId(id)
@@ -1052,6 +1077,225 @@ app.get('/notificaciones/:idNotificacion', token.verify, async (req: Request, re
         )
     );
 });
+
+app.get('/pendientesinforme', token.verify, async (req: Request, res: Response) => {
+    
+    const pendientesinforme = await mongodb.db.collection('pendientes-informe').find({}).sort({"fechaLimite" : 1}).toArray();
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                pendientesinforme
+            }
+        )
+    );
+});
+
+app.get('/pendientesinforme/:id', token.verify, async (req: Request, res: Response) => {
+    
+    const { id } = req.params;
+
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    
+    const pendienteinforme = await mongodb.db.collection('pendientes-informe').findOne({ "_id" : new ObjectId(id) });
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                pendienteinforme
+            }
+        )
+    );
+});
+
+app.put('/pendientesinforme/edit', token.verify, multer.array('documents'), async (req: Request, res: Response) => {
+
+    const _id = req.body._id
+    delete req.body._id
+    const pendiente = req.body
+
+    const query = { "_id" : new ObjectId(_id) }
+
+    const updateDocument = { 
+        $set : pendiente 
+    }
+ 
+    const options = {
+        "multi" : false,
+        "upsert" : false
+    }
+
+    const result = await mongodb.db.collection('pendientes-informe').updateOne(query, updateDocument, options)
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                result
+            }
+        )
+    );
+})
+
+app.get('/contactos', token.verify, async (req: Request, res: Response) => {
+    
+    const contactos = await mongodb.db.collection('contactos').find({}).sort({"tipo" : 1}).toArray();
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                contactos
+            }
+        )
+    );
+});
+
+app.get('/contactos/:id', token.verify, async (req: Request, res: Response) => {
+    
+    const { id } = req.params;
+
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    
+    const contacto = await mongodb.db.collection('contactos').findOne({ "_id" : new ObjectId(id) });
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                contacto
+            }
+        )
+    );
+});
+
+app.get('/contactospublic/:id', async (req: Request, res: Response) => {
+    
+    const { id } = req.params;
+
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    
+    const contacto = await mongodb.db.collection('contactos').findOne({ "_id" : new ObjectId(id) }, {projection: { nombre: true, requerimientosEspeciales: true }});
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                contacto
+            }
+        )
+    );
+});
+
+app.put('/contactos', token.verify, async (req: Request, res: Response) => {
+
+    const id = req.body._id
+    delete req.body._id
+    const contacto = req.body
+
+    const query = { "_id" : new ObjectId(id) }
+
+    const updateDocument = { 
+        $set : contacto 
+    }
+ 
+    const options = {
+        "multi" : false,
+        "upsert" : false
+    }
+
+    const result = await mongodb.db.collection('contactos').updateOne(query, updateDocument, options)
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                result
+            }
+        )
+    );
+})
+
+app.get('/contactosInforme', token.verify, async (req: Request, res: Response) => {
+    
+    const contactosInforme = await mongodb.db.collection('contactos').find({"invitadoInforme":"1"}).sort({"tipo" : 1}).toArray();
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                contactosInforme
+            }
+        )
+    );
+});
+
+app.post('/sendmail', async (req: Request, res: Response) => {
+
+    // let email = {
+    //     from: 'antonio.amador@poderjudicial-gto.gob.mx',
+    //     to: 'amador.barajas.antonio@gmail.com',
+    //     subject: 'Nuevo mensaje de usuario',
+    //     html: `Test`
+    // }
+
+    let email = req.body
+
+    transporter.sendMail(email, (error: any, info: any) => {
+        if(error){
+            console.log("Error al enviar email");
+            console.log("Correo enviado correctamente");
+            res.status(200).json(
+                apiUtils.BodyResponse(
+                    apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+                    {
+                        error
+                    }
+                )
+            );
+        } else{
+            console.log("Correo enviado correctamente");
+            res.status(200).json(
+                apiUtils.BodyResponse(
+                    apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+                    {
+                        info
+                    }
+                )
+            );
+        }
+    })
+})
+
+app.put('/confirmarAsistenciaPublic', async (req: Request, res: Response) => {
+
+    const _id = req.body._id
+    delete req.body._id
+    const contacto = req.body
+    const query = { "_id" : new ObjectId(_id) }
+    const updateDocument = { 
+        $set : contacto 
+    }
+    const options = {
+        "multi" : false,
+        "upsert" : false
+    }
+    const result = await mongodb.db.collection('contactos').updateOne(query, updateDocument, options)
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                result
+            }
+        )
+    );
+})
+
 //Start Express Server
 // app.listen(ENV.API.PORT, async() => {
 //     //Conectando con MongoDB

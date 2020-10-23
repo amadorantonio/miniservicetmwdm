@@ -55,6 +55,16 @@ const token = token_middleware_1.default(env_production_1.default);
 //MongoDB helper import
 const mongodb_helpers_1 = __importDefault(require("./helpers/mongodb.helpers"));
 const path_1 = __importDefault(require("path"));
+const nodemailer = require("nodemailer");
+var transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
+    auth: {
+        user: "antonio.amador@poderjudicial-gto.gob.mx",
+        pass: "1dragon2negro3",
+    } // generated ethereal password
+});
 const debug = debug_1.DEBUG();
 const color = debug_1.COLOR();
 const app = express_1.default();
@@ -169,9 +179,14 @@ app.get('/bitacoraCharts', token.verify, (req, res) => __awaiter(void 0, void 0,
     }));
 }));
 app.post('/bitacora', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    delete req.body._id;
+    let usuario = req.body['usuarioCreacion'];
     yield mongodb.db.collection('bitacora').insertOne(req.body);
+    let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó un elemento de bitácora`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('alta-bitacora', insert.insertedId);
     //envío de comunicación a todos los clientes conectados
-    io.emit('alta-bitacora', 'Le informamos que se agregó un nuevo elemento de bitácora');
+    // io.emit('alta-bitacora', 'Le informamos que se agregó un nuevo elemento de bitácora');
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         //req.body,
         authUser: req.body.authUser
@@ -190,6 +205,7 @@ app.put('/bitacora', token.verify, (req, res) => __awaiter(void 0, void 0, void 
     const id = req.body._id;
     delete req.body._id;
     const bitacora = req.body;
+    console.log(bitacora);
     yield mongodb.db.collection('bitacora').update({
         "_id": new mongodb_1.ObjectId(id)
     }, 
@@ -673,6 +689,126 @@ app.get('/notificaciones/:idNotificacion', token.verify, (req, res) => __awaiter
     const notificacion = yield mongodb.db.collection('notificaciones').findOne({ "_id": new mongodb_1.ObjectId(idNotificacion) });
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         notificacion
+    }));
+}));
+app.get('/pendientesinforme', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const pendientesinforme = yield mongodb.db.collection('pendientes-informe').find({}).sort({ "fechaLimite": 1 }).toArray();
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        pendientesinforme
+    }));
+}));
+app.get('/pendientesinforme/:id', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const pendienteinforme = yield mongodb.db.collection('pendientes-informe').findOne({ "_id": new mongodb_1.ObjectId(id) });
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        pendienteinforme
+    }));
+}));
+app.put('/pendientesinforme/edit', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const _id = req.body._id;
+    delete req.body._id;
+    const pendiente = req.body;
+    const query = { "_id": new mongodb_1.ObjectId(_id) };
+    const updateDocument = {
+        $set: pendiente
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('pendientes-informe').updateOne(query, updateDocument, options);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.get('/contactos', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const contactos = yield mongodb.db.collection('contactos').find({}).sort({ "tipo": 1 }).toArray();
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        contactos
+    }));
+}));
+app.get('/contactos/:id', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const contacto = yield mongodb.db.collection('contactos').findOne({ "_id": new mongodb_1.ObjectId(id) });
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        contacto
+    }));
+}));
+app.get('/contactospublic/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const contacto = yield mongodb.db.collection('contactos').findOne({ "_id": new mongodb_1.ObjectId(id) }, { projection: { nombre: true, requerimientosEspeciales: true } });
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        contacto
+    }));
+}));
+app.put('/contactos', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const id = req.body._id;
+    delete req.body._id;
+    const contacto = req.body;
+    const query = { "_id": new mongodb_1.ObjectId(id) };
+    const updateDocument = {
+        $set: contacto
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('contactos').updateOne(query, updateDocument, options);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.get('/contactosInforme', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const contactosInforme = yield mongodb.db.collection('contactos').find({ "invitadoInforme": "1" }).sort({ "tipo": 1 }).toArray();
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        contactosInforme
+    }));
+}));
+app.post('/sendmail', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    // let email = {
+    //     from: 'antonio.amador@poderjudicial-gto.gob.mx',
+    //     to: 'amador.barajas.antonio@gmail.com',
+    //     subject: 'Nuevo mensaje de usuario',
+    //     html: `Test`
+    // }
+    let email = req.body;
+    transporter.sendMail(email, (error, info) => {
+        if (error) {
+            console.log("Error al enviar email");
+            console.log("Correo enviado correctamente");
+            res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                error
+            }));
+        }
+        else {
+            console.log("Correo enviado correctamente");
+            res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                info
+            }));
+        }
+    });
+}));
+app.put('/confirmarAsistenciaPublic', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const _id = req.body._id;
+    delete req.body._id;
+    const contacto = req.body;
+    const query = { "_id": new mongodb_1.ObjectId(_id) };
+    const updateDocument = {
+        $set: contacto
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('contactos').updateOne(query, updateDocument, options);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
     }));
 }));
 //Start Express Server
