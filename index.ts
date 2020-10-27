@@ -400,6 +400,7 @@ app.post('/solicitudinformacion', token.verify, multer.array('documents'), async
     let body = req.body
     let usuario = req.body['usuarioCreacion']
     let filesArray: any[] = []
+    let seguimiento = JSON.parse(req.body['seguimiento'])
     if(req.files){
         let data: any = req.files; 
         let files = req.files;
@@ -416,6 +417,7 @@ app.post('/solicitudinformacion', token.verify, multer.array('documents'), async
         }
         req.body['files'] = filesArray
     } 
+    body['seguimiento'] = seguimiento
 
     await mongodb.db.collection('solicitudes-informacion').insertOne(req.body, async function (err:any,result:any) {
 
@@ -442,6 +444,7 @@ app.put('/solicitudinformacion', token.verify, multer.array('documents'), async 
     delete req.body._id
     const solicitud = req.body
     let files = JSON.parse(req.body['files'])
+    let seguimiento = JSON.parse(req.body['seguimiento'])
 
     if(req.files){
         let newFiles: any = req.files;
@@ -458,19 +461,31 @@ app.put('/solicitudinformacion', token.verify, multer.array('documents'), async 
     }
 
     req.body['files'] = files
+    req.body['seguimiento'] = seguimiento
 
-    await mongodb.db.collection('solicitudes-informacion').update({
-        "_id" : new ObjectId(id)
-    },
+    const query = { "_id" : new ObjectId(id) }
+    const updateDocument = { 
+        $set : solicitud 
+    }
+    const options = {
+        "multi" : false,
+        "upsert" : false
+    }
+    const result = await mongodb.db.collection('solicitudes-informacion').updateOne(query, updateDocument, options)
+
+
+    // await mongodb.db.collection('solicitudes-informacion').update({
+    //     "_id" : new ObjectId(id)
+    // },
     
-    // update 
-    solicitud,
+    // // update 
+    // solicitud,
     
-    // options 
-    {
-        "multi" : false,  // update only one document 
-        "upsert" : false  // insert a new document, if no existing document match the query 
-    });
+    // // options 
+    // {
+    //     "multi" : false,  // update only one document 
+    //     "upsert" : false  // insert a new document, if no existing document match the query 
+    // });
 
     //envío de comunicación a todos los clientes conectados
     // io.emit('alta-solicitud-informacion', 'Le informamos que se agregó un nuevo elemento de solicitud de información');
@@ -479,8 +494,7 @@ app.put('/solicitudinformacion', token.verify, multer.array('documents'), async 
         apiUtils.BodyResponse(
             apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
             {
-                solicitud,
-                authUser: req.body.authUser
+                solicitud
             }
         )
     );
@@ -1180,7 +1194,7 @@ app.get('/contactospublic/:id', async (req: Request, res: Response) => {
     res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     
-    const contacto = await mongodb.db.collection('contactos').findOne({ "_id" : new ObjectId(id) }, {projection: { nombre: true, requerimientosEspeciales: true }});
+    const contacto = await mongodb.db.collection('contactos').findOne({ "_id" : new ObjectId(id) }, {projection: { nombre: true, requerimientosEspeciales: true, confirmacionAsistencia: true }});
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -1286,6 +1300,13 @@ app.put('/confirmarAsistenciaPublic', async (req: Request, res: Response) => {
         "upsert" : false
     }
     const result = await mongodb.db.collection('contactos').updateOne(query, updateDocument, options)
+
+    console.log(contacto)
+
+    let notificacion = { fecha: moment(new Date()).format('DD/MM/YYYY HH:mm'), text: `${contacto['nombre']} ha confirmado su asistencia al informe.`, username: contacto.nombre }
+    const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('confirmacion-asistencia-informe', insert.insertedId);
+
     res.status(200).json(
         apiUtils.BodyResponse(
             apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 

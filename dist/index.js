@@ -264,6 +264,7 @@ app.post('/solicitudinformacion', token.verify, multer_1.default.array('document
     let body = req.body;
     let usuario = req.body['usuarioCreacion'];
     let filesArray = [];
+    let seguimiento = JSON.parse(req.body['seguimiento']);
     if (req.files) {
         let data = req.files;
         let files = req.files;
@@ -280,6 +281,7 @@ app.post('/solicitudinformacion', token.verify, multer_1.default.array('document
         }
         req.body['files'] = filesArray;
     }
+    body['seguimiento'] = seguimiento;
     yield mongodb.db.collection('solicitudes-informacion').insertOne(req.body, function (err, result) {
         return __awaiter(this, void 0, void 0, function* () {
             //envío de comunicación a todos los clientes conectados
@@ -298,6 +300,7 @@ app.put('/solicitudinformacion', token.verify, multer_1.default.array('documents
     delete req.body._id;
     const solicitud = req.body;
     let files = JSON.parse(req.body['files']);
+    let seguimiento = JSON.parse(req.body['seguimiento']);
     if (req.files) {
         let newFiles = req.files;
         for (let index = 0; index < newFiles.length; ++index) {
@@ -312,21 +315,30 @@ app.put('/solicitudinformacion', token.verify, multer_1.default.array('documents
         }
     }
     req.body['files'] = files;
-    yield mongodb.db.collection('solicitudes-informacion').update({
-        "_id": new mongodb_1.ObjectId(id)
-    }, 
-    // update 
-    solicitud, 
-    // options 
-    {
+    req.body['seguimiento'] = seguimiento;
+    const query = { "_id": new mongodb_1.ObjectId(id) };
+    const updateDocument = {
+        $set: solicitud
+    };
+    const options = {
         "multi": false,
-        "upsert": false // insert a new document, if no existing document match the query 
-    });
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('solicitudes-informacion').updateOne(query, updateDocument, options);
+    // await mongodb.db.collection('solicitudes-informacion').update({
+    //     "_id" : new ObjectId(id)
+    // },
+    // // update 
+    // solicitud,
+    // // options 
+    // {
+    //     "multi" : false,  // update only one document 
+    //     "upsert" : false  // insert a new document, if no existing document match the query 
+    // });
     //envío de comunicación a todos los clientes conectados
     // io.emit('alta-solicitud-informacion', 'Le informamos que se agregó un nuevo elemento de solicitud de información');
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
-        solicitud,
-        authUser: req.body.authUser
+        solicitud
     }));
 }));
 app.put('/solicitudinformacion/fileDelete', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -742,7 +754,7 @@ app.get('/contactospublic/:id', (req, res) => __awaiter(void 0, void 0, void 0, 
     const { id } = req.params;
     res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-    const contacto = yield mongodb.db.collection('contactos').findOne({ "_id": new mongodb_1.ObjectId(id) }, { projection: { nombre: true, requerimientosEspeciales: true } });
+    const contacto = yield mongodb.db.collection('contactos').findOne({ "_id": new mongodb_1.ObjectId(id) }, { projection: { nombre: true, requerimientosEspeciales: true, confirmacionAsistencia: true } });
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         contacto
     }));
@@ -807,6 +819,10 @@ app.put('/confirmarAsistenciaPublic', (req, res) => __awaiter(void 0, void 0, vo
         "upsert": false
     };
     const result = yield mongodb.db.collection('contactos').updateOne(query, updateDocument, options);
+    console.log(contacto);
+    let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `${contacto['nombre']} ha confirmado su asistencia al informe.`, username: contacto.nombre };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('confirmacion-asistencia-informe', insert.insertedId);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         result
     }));
