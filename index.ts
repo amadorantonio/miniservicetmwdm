@@ -43,6 +43,8 @@ var transporter = nodemailer.createTransport({
     } // generated ethereal password
 });
 
+var DocxMerger = require('docx-merger');
+
 const debug = DEBUG();
 const color = COLOR();
 const app = Express();
@@ -182,7 +184,7 @@ app.get('/bitacora', token.verify, async (req: Request, res: Response) => {
     res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
  
-    const bitacora = await mongodb.db.collection('bitacora').find({ 'activo': '1' }).sort({Fecha : -1}).toArray();
+    const bitacora = await mongodb.db.collection('bitacora').find({ 'activo': '1' }).sort({fecha : -1}).toArray();
     res.status(200).json(
          apiUtils.BodyResponse(
              apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
@@ -296,9 +298,6 @@ app.put('/bitacora', token.verify, async (req: Request, res: Response) => {
     const id = req.body._id
     delete req.body._id
     const bitacora = req.body
-
-    console.log(bitacora)
-
     await mongodb.db.collection('bitacora').update({
         "_id" : new ObjectId(id)
     },
@@ -752,6 +751,7 @@ app.put('/reunion', token.verify, multer.array('documents'), async (req: Request
     delete req.body._id
     const reunion = req.body
     let files = JSON.parse(req.body['files'])
+    let usuario = req.body['usuarioActualizacion']
 
     if(req.files){
         let newFiles: any = req.files;
@@ -782,8 +782,9 @@ app.put('/reunion', token.verify, multer.array('documents'), async (req: Request
         "upsert" : false  // insert a new document, if no existing document match the query 
     });
 
-    //envío de comunicación a todos los clientes conectados
-    // io.emit('edicion-reunion', 'Le informamos que se edito un elemento de reunión');
+    let notificacion = { fecha: moment(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó una reunión`, username: usuario }
+    const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('edicion-reunion', insert.insertedId);
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -840,6 +841,10 @@ app.put('/reunion/delete', token.verify, async (req: Request, res: Response) => 
         "multi" : false,  // update only one document 
         "upsert" : false  // insert a new document, if no existing document match the query 
     }); 
+
+    let notificacion = { fecha: moment(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${idUsuario} eliminó una reunión`, username: idUsuario }
+    const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('delete-reunion', insert.insertedId);
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -1094,7 +1099,7 @@ app.get('/notificaciones/:idNotificacion', token.verify, async (req: Request, re
 
 app.get('/pendientesinforme', token.verify, async (req: Request, res: Response) => {
     
-    const pendientesinforme = await mongodb.db.collection('pendientes-informe').find({}).sort({"fechaLimite" : 1}).toArray();
+    const pendientesinforme = await mongodb.db.collection('pendientes-informe').find({}).sort({"fechaLimite" : 1, "nombre": 1}).toArray();
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -1105,6 +1110,20 @@ app.get('/pendientesinforme', token.verify, async (req: Request, res: Response) 
         )
     );
 });
+
+app.post('/pendientesinforme/add', token.verify, async (req: Request, res: Response) => { 
+    delete req.body._id
+    await mongodb.db.collection('pendientes-informe').insertOne(req.body, async function (err:any,result:any){
+        res.status(200).json(
+            apiUtils.BodyResponse(
+                apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+                {
+                     result
+                }
+            )
+        ); 
+    });
+})
 
 app.get('/pendientesinforme/:id', token.verify, async (req: Request, res: Response) => {
     
@@ -1156,7 +1175,7 @@ app.put('/pendientesinforme/edit', token.verify, multer.array('documents'), asyn
 
 app.get('/contactos', token.verify, async (req: Request, res: Response) => {
     
-    const contactos = await mongodb.db.collection('contactos').find({}).sort({"tipo" : 1}).toArray();
+    const contactos = await mongodb.db.collection('contactos').find({ 'activo': '1' }).sort({"grupo" : 1, "nombre" : 1}).toArray();
 
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -1206,6 +1225,43 @@ app.get('/contactospublic/:id', async (req: Request, res: Response) => {
     );
 });
 
+app.get('/contactos/:grupo/:tipo/:invitadoInforme/:invitacion', token.verify, async (req: Request, res: Response) => {
+
+    const { grupo, tipo, invitadoInforme, invitacion } = req.params;
+    const gruposArray = grupo.split(',')
+    const tiposArray = tipo.split(',')
+    const invitadoInformeArray = invitadoInforme.split(',')
+    const invitacionArray = invitacion.split(',')
+
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    
+    const contactos = await mongodb.db.collection('contactos').find({ 'grupo': { $in: gruposArray }, 'tipo': { $in: tiposArray }, 'invitadoInforme': { $in: invitadoInformeArray }, 'tipoInvitacion': { $in: invitacionArray }, 'activo': '1' }).sort({"grupo" : 1, "nombre" : 1}).toArray();
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                contactos
+            } 
+        )
+    );
+});
+
+app.post('/contactos', token.verify, async (req: Request, res: Response) => { 
+    delete req.body._id
+    await mongodb.db.collection('contactos').insertOne(req.body, async function (err:any,result:any){
+        res.status(200).json(
+            apiUtils.BodyResponse(
+                apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+                {
+                     result
+                }
+            )
+        ); 
+    });
+})
+
 app.put('/contactos', token.verify, async (req: Request, res: Response) => {
 
     const id = req.body._id
@@ -1249,7 +1305,7 @@ app.get('/contactosInforme', token.verify, async (req: Request, res: Response) =
     );
 });
 
-app.post('/sendmail', async (req: Request, res: Response) => {
+app.post('/sendmail', token.verify, async (req: Request, res: Response) => {
 
     // let email = {
     //     from: 'antonio.amador@poderjudicial-gto.gob.mx',
@@ -1257,9 +1313,7 @@ app.post('/sendmail', async (req: Request, res: Response) => {
     //     subject: 'Nuevo mensaje de usuario',
     //     html: `Test`
     // }
-
     let email = req.body
-
     transporter.sendMail(email, (error: any, info: any) => {
         if(error){
             console.log("Error al enviar email");
@@ -1300,9 +1354,6 @@ app.put('/confirmarAsistenciaPublic', async (req: Request, res: Response) => {
         "upsert" : false
     }
     const result = await mongodb.db.collection('contactos').updateOne(query, updateDocument, options)
-
-    console.log(contacto)
-
     let notificacion = { fecha: moment(new Date()).format('DD/MM/YYYY HH:mm'), text: `${contacto['nombre']} ha confirmado su asistencia al informe.`, username: contacto.nombre }
     const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
     io.emit('confirmacion-asistencia-informe', insert.insertedId);
@@ -1316,6 +1367,87 @@ app.put('/confirmarAsistenciaPublic', async (req: Request, res: Response) => {
         )
     );
 })
+
+app.get('/subsistemas', token.verify, async (req: Request, res: Response) => {
+    
+    const subsistemas = await mongodb.db.collection('subsistemas').find().toArray();
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                subsistemas
+            }
+        )
+    );
+});
+
+app.put('/subsistemas', token.verify, multer.array('documents'), async (req: Request, res: Response) => {
+
+    const id = req.body._id
+    delete req.body._id
+    const subsisema = req.body
+    let files = JSON.parse(req.body['files'])
+    if(req.files){
+        let newFiles: any = req.files;
+        for (let index = 0; index < newFiles.length; ++index) {
+            files.push({
+                'originalname': newFiles[index].originalname,
+                'mimetype': newFiles[index].mimetype,
+                'filename': newFiles[index].filename,
+                'path': newFiles[index].path,
+                'size': newFiles[index].size,
+                'uploadDate': new Date().toLocaleString(),
+                'user': subsisema['usuarioActualizacion']
+            })
+        }
+    }
+    req.body['files'] = files
+    const query = { "_id" : new ObjectId(id) }
+    const updateDocument = { 
+        $set : subsisema 
+    }
+    const options = {
+        "multi" : false,
+        "upsert" : false
+    }
+    const result = await mongodb.db.collection('subsistemas').updateOne(query, updateDocument, options)
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                result
+            }
+        )
+    );
+})
+
+app.post('/combinardocumentos', async (req: Request, res: Response) => {
+
+    let documentos = req.body
+    var fs = require('fs');
+    var path = require('path');
+    let rutas: any[] = []
+    documentos.forEach((documento: any) => {
+        rutas.push(fs.readFileSync(path.resolve(documento), 'binary'))
+    });
+    var docx = new DocxMerger({},rutas);
+    let filename = uuidv4()
+    let filePath = path.resolve("uploads",`${filename}.docx`)
+    docx.save('nodebuffer',function (data: any) {
+        fs.writeFile(filePath, data, function(err: any){
+            res.status(200).json(
+                apiUtils.BodyResponse(
+                    apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+                    {
+                        filename
+                    }
+                )
+            );
+        });
+    });
+})
+
 
 //Start Express Server
 // app.listen(ENV.API.PORT, async() => {
@@ -1339,4 +1471,4 @@ httpServer.listen(ENV.API.PORT, async() => {
          process.exit();
      }
     debug.express(`El servidor ${color.express('Express')} se inició ${color.succes('correctamente')} en el puerto ${color.info(ENV.API.PORT)}`);
-});
+}); 

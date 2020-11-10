@@ -65,6 +65,7 @@ var transporter = nodemailer.createTransport({
         pass: "1dragon2negro3",
     } // generated ethereal password
 });
+var DocxMerger = require('docx-merger');
 const debug = debug_1.DEBUG();
 const color = debug_1.COLOR();
 const app = express_1.default();
@@ -138,7 +139,7 @@ app.get('/products', token.verify, (req, res) => __awaiter(void 0, void 0, void 
 app.get('/bitacora', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-    const bitacora = yield mongodb.db.collection('bitacora').find({ 'activo': '1' }).sort({ Fecha: -1 }).toArray();
+    const bitacora = yield mongodb.db.collection('bitacora').find({ 'activo': '1' }).sort({ fecha: -1 }).toArray();
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         bitacora
     }));
@@ -205,7 +206,6 @@ app.put('/bitacora', token.verify, (req, res) => __awaiter(void 0, void 0, void 
     const id = req.body._id;
     delete req.body._id;
     const bitacora = req.body;
-    console.log(bitacora);
     yield mongodb.db.collection('bitacora').update({
         "_id": new mongodb_1.ObjectId(id)
     }, 
@@ -487,6 +487,7 @@ app.put('/reunion', token.verify, multer_1.default.array('documents'), (req, res
     delete req.body._id;
     const reunion = req.body;
     let files = JSON.parse(req.body['files']);
+    let usuario = req.body['usuarioActualizacion'];
     if (req.files) {
         let newFiles = req.files;
         for (let index = 0; index < newFiles.length; ++index) {
@@ -511,8 +512,9 @@ app.put('/reunion', token.verify, multer_1.default.array('documents'), (req, res
         "multi": false,
         "upsert": false // insert a new document, if no existing document match the query 
     });
-    //envío de comunicación a todos los clientes conectados
-    // io.emit('edicion-reunion', 'Le informamos que se edito un elemento de reunión');
+    let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó una reunión`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('edicion-reunion', insert.insertedId);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         reunion
     }));
@@ -547,6 +549,9 @@ app.put('/reunion/delete', token.verify, (req, res) => __awaiter(void 0, void 0,
         "multi": false,
         "upsert": false // insert a new document, if no existing document match the query 
     });
+    let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${idUsuario} eliminó una reunión`, username: idUsuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('delete-reunion', insert.insertedId);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         idReunion
     }));
@@ -704,10 +709,20 @@ app.get('/notificaciones/:idNotificacion', token.verify, (req, res) => __awaiter
     }));
 }));
 app.get('/pendientesinforme', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const pendientesinforme = yield mongodb.db.collection('pendientes-informe').find({}).sort({ "fechaLimite": 1 }).toArray();
+    const pendientesinforme = yield mongodb.db.collection('pendientes-informe').find({}).sort({ "fechaLimite": 1, "nombre": 1 }).toArray();
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         pendientesinforme
     }));
+}));
+app.post('/pendientesinforme/add', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    delete req.body._id;
+    yield mongodb.db.collection('pendientes-informe').insertOne(req.body, function (err, result) {
+        return __awaiter(this, void 0, void 0, function* () {
+            res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                result
+            }));
+        });
+    });
 }));
 app.get('/pendientesinforme/:id', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
@@ -736,7 +751,7 @@ app.put('/pendientesinforme/edit', token.verify, multer_1.default.array('documen
     }));
 }));
 app.get('/contactos', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const contactos = yield mongodb.db.collection('contactos').find({}).sort({ "tipo": 1 }).toArray();
+    const contactos = yield mongodb.db.collection('contactos').find({ 'activo': '1' }).sort({ "grupo": 1, "nombre": 1 }).toArray();
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         contactos
     }));
@@ -758,6 +773,29 @@ app.get('/contactospublic/:id', (req, res) => __awaiter(void 0, void 0, void 0, 
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         contacto
     }));
+}));
+app.get('/contactos/:grupo/:tipo/:invitadoInforme/:invitacion', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { grupo, tipo, invitadoInforme, invitacion } = req.params;
+    const gruposArray = grupo.split(',');
+    const tiposArray = tipo.split(',');
+    const invitadoInformeArray = invitadoInforme.split(',');
+    const invitacionArray = invitacion.split(',');
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const contactos = yield mongodb.db.collection('contactos').find({ 'grupo': { $in: gruposArray }, 'tipo': { $in: tiposArray }, 'invitadoInforme': { $in: invitadoInformeArray }, 'tipoInvitacion': { $in: invitacionArray }, 'activo': '1' }).sort({ "grupo": 1, "nombre": 1 }).toArray();
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        contactos
+    }));
+}));
+app.post('/contactos', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    delete req.body._id;
+    yield mongodb.db.collection('contactos').insertOne(req.body, function (err, result) {
+        return __awaiter(this, void 0, void 0, function* () {
+            res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                result
+            }));
+        });
+    });
 }));
 app.put('/contactos', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const id = req.body._id;
@@ -782,7 +820,7 @@ app.get('/contactosInforme', token.verify, (req, res) => __awaiter(void 0, void 
         contactosInforme
     }));
 }));
-app.post('/sendmail', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.post('/sendmail', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     // let email = {
     //     from: 'antonio.amador@poderjudicial-gto.gob.mx',
     //     to: 'amador.barajas.antonio@gmail.com',
@@ -819,13 +857,70 @@ app.put('/confirmarAsistenciaPublic', (req, res) => __awaiter(void 0, void 0, vo
         "upsert": false
     };
     const result = yield mongodb.db.collection('contactos').updateOne(query, updateDocument, options);
-    console.log(contacto);
     let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `${contacto['nombre']} ha confirmado su asistencia al informe.`, username: contacto.nombre };
     const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
     io.emit('confirmacion-asistencia-informe', insert.insertedId);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         result
     }));
+}));
+app.get('/subsistemas', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const subsistemas = yield mongodb.db.collection('subsistemas').find().toArray();
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        subsistemas
+    }));
+}));
+app.put('/subsistemas', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const id = req.body._id;
+    delete req.body._id;
+    const subsisema = req.body;
+    let files = JSON.parse(req.body['files']);
+    if (req.files) {
+        let newFiles = req.files;
+        for (let index = 0; index < newFiles.length; ++index) {
+            files.push({
+                'originalname': newFiles[index].originalname,
+                'mimetype': newFiles[index].mimetype,
+                'filename': newFiles[index].filename,
+                'path': newFiles[index].path,
+                'size': newFiles[index].size,
+                'uploadDate': new Date().toLocaleString(),
+                'user': subsisema['usuarioActualizacion']
+            });
+        }
+    }
+    req.body['files'] = files;
+    const query = { "_id": new mongodb_1.ObjectId(id) };
+    const updateDocument = {
+        $set: subsisema
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('subsistemas').updateOne(query, updateDocument, options);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.post('/combinardocumentos', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    let documentos = req.body;
+    var fs = require('fs');
+    var path = require('path');
+    let rutas = [];
+    documentos.forEach((documento) => {
+        rutas.push(fs.readFileSync(path.resolve(documento), 'binary'));
+    });
+    var docx = new DocxMerger({}, rutas);
+    let filename = uuid_1.v4();
+    let filePath = path.resolve("uploads", `${filename}.docx`);
+    docx.save('nodebuffer', function (data) {
+        fs.writeFile(filePath, data, function (err) {
+            res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                filename
+            }));
+        });
+    });
 }));
 //Start Express Server
 // app.listen(ENV.API.PORT, async() => {
