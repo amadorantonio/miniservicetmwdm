@@ -55,6 +55,7 @@ const token = token_middleware_1.default(env_production_1.default);
 //MongoDB helper import
 const mongodb_helpers_1 = __importDefault(require("./helpers/mongodb.helpers"));
 const path_1 = __importDefault(require("path"));
+const pdf2pic_1 = require("pdf2pic");
 const nodemailer = require("nodemailer");
 var transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
@@ -62,8 +63,9 @@ var transporter = nodemailer.createTransport({
     secure: false,
     auth: {
         user: "antonio.amador@poderjudicial-gto.gob.mx",
-        pass: "1dragon2negro3",
-    } // generated ethereal password
+        //user: "presidencia.pjegto@poderjudicial-gto.gob.mx", // generated ethereal user
+        pass: "1dragon2negro342148",
+    }
 });
 var DocxMerger = require('docx-merger');
 const debug = debug_1.DEBUG();
@@ -110,7 +112,7 @@ app.post('/login', (req, res, next) => __awaiter(void 0, void 0, void 0, functio
                     return res.status(500).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Internal_Server_Error, 'Internal Server Error', 'Error al intentar crear el Token', null, err));
                 }
                 // OK
-                let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `${user.username} ha iniciado sesión`, username: user.username };
+                let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `${user.username} ha iniciado sesión`, username: user.username };
                 const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
                 io.emit('login', insert.insertedId);
                 res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'Token generado de forma correcta', {
@@ -179,17 +181,35 @@ app.get('/bitacoraCharts', token.verify, (req, res) => __awaiter(void 0, void 0,
         authUser: req.body.authUser
     }));
 }));
-app.post('/bitacora', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    delete req.body._id;
+app.post('/bitacora', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     let usuario = req.body['usuarioCreacion'];
+    let filesArray = [];
+    if (req.files) {
+        let data = req.files;
+        let files = req.files;
+        let index, len;
+        for (index = 0, len = files.length; index < len; ++index) {
+            filesArray.push({
+                'user': usuario,
+                'originalname': data[index].originalname,
+                'mimetype': data[index].mimetype,
+                'filename': data[index].filename,
+                'path': data[index].path,
+                'size': data[index].size,
+                'uploadDate': new Date().toLocaleString()
+            });
+        }
+        req.body['files'] = filesArray;
+    }
+    req.body['solicitudes'] = [];
+    req.body['quejas'] = [];
+    req.body['propuestasMejora'] = [];
+    req.body['reuniones'] = [];
     yield mongodb.db.collection('bitacora').insertOne(req.body);
-    let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó un elemento de bitácora`, username: usuario };
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó un elemento de recepción de documentos.`, username: usuario };
     const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
-    io.emit('alta-bitacora', insert.insertedId);
-    //envío de comunicación a todos los clientes conectados
-    // io.emit('alta-bitacora', 'Le informamos que se agregó un nuevo elemento de bitácora');
+    io.emit('document-reception-inserted', insert.insertedId);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
-        //req.body,
         authUser: req.body.authUser
     }));
 }));
@@ -202,24 +222,294 @@ app.get('/bitacora/:id', token.verify, (req, res) => __awaiter(void 0, void 0, v
         elementoBitacora
     }));
 }));
-app.put('/bitacora', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.put('/bitacora', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const id = req.body._id;
     delete req.body._id;
     const bitacora = req.body;
-    yield mongodb.db.collection('bitacora').update({
-        "_id": new mongodb_1.ObjectId(id)
-    }, 
-    // update 
-    bitacora, 
-    // options 
-    {
+    let usuario = req.body['usuarioActualizacion'];
+    let files = JSON.parse(req.body['files']);
+    if (req.files) {
+        let newFiles = req.files;
+        for (let index = 0; index < newFiles.length; ++index) {
+            files.push({
+                'user': usuario,
+                'originalname': newFiles[index].originalname,
+                'mimetype': newFiles[index].mimetype,
+                'filename': newFiles[index].filename,
+                'path': newFiles[index].path,
+                'size': newFiles[index].size,
+                'uploadDate': new Date().toLocaleString()
+            });
+        }
+    }
+    req.body['files'] = files;
+    const query = { "_id": new mongodb_1.ObjectId(id) };
+    const updateDocument = {
+        $set: bitacora
+    };
+    const options = {
         "multi": false,
-        "upsert": false // insert a new document, if no existing document match the query 
-    });
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('bitacora').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó un elemento de recepción de documentos.`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
     //envío de comunicación a todos los clientes conectados
-    // io.emit('edicion-elemento-bitacora', 'Le informamos que se editó un elemento de bitácora');
+    io.emit('document-reception-edited', insert.insertedId);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
-        bitacora
+        result
+    }));
+}));
+app.put('/bitacora/solicitud/add', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idDocumentReception = req.body.idDocumentReception;
+    delete req.body.idDocumentReception;
+    const solicitud = req.body;
+    solicitud['_id'] = uuid_1.v4();
+    let usuario = req.body['usuarioCreacion'];
+    const query = { "_id": new mongodb_1.ObjectId(idDocumentReception) };
+    const updateDocument = {
+        $push: { 'solicitudes': solicitud }
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('bitacora').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó un elemento de solicitud de información`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('information-request-inserted', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.put('/bitacora/reunion/add', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idDocumentReception = req.body.idDocumentReception;
+    delete req.body.idDocumentReception;
+    const reunion = req.body;
+    reunion['_id'] = uuid_1.v4();
+    reunion['asistentes'] = JSON.parse(req.body['asistentes']);
+    let usuario = req.body['usuarioCreacion'];
+    let filesArray = [];
+    if (req.files) {
+        let data = req.files;
+        let files = req.files;
+        let index, len;
+        for (index = 0, len = files.length; index < len; ++index) {
+            filesArray.push({
+                'user': usuario,
+                'originalname': data[index].originalname,
+                'mimetype': data[index].mimetype,
+                'filename': data[index].filename,
+                'path': data[index].path,
+                'size': data[index].size,
+                'uploadDate': new Date().toLocaleString()
+            });
+        }
+        req.body['files'] = filesArray;
+    }
+    const query = { "_id": new mongodb_1.ObjectId(idDocumentReception) };
+    const updateDocument = {
+        $push: { 'reuniones': reunion }
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('bitacora').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó una reunión`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('meeting-inserted', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.put('/bitacora/queja/add', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idDocumentReception = req.body.idDocumentReception;
+    delete req.body.idDocumentReception;
+    const queja = req.body;
+    queja['_id'] = uuid_1.v4();
+    let usuario = req.body['usuarioCreacion'];
+    const query = { "_id": new mongodb_1.ObjectId(idDocumentReception) };
+    const updateDocument = {
+        $push: { 'quejas': queja }
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('bitacora').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó una reunión`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('complain-inserted', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.put('/bitacora/propuestasMejora/add', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idDocumentReception = req.body.idDocumentReception;
+    delete req.body.idDocumentReception;
+    const improvement = req.body;
+    improvement['_id'] = uuid_1.v4();
+    let usuario = req.body['usuarioCreacion'];
+    const query = { "_id": new mongodb_1.ObjectId(idDocumentReception) };
+    const updateDocument = {
+        $push: { 'propuestasMejora': improvement }
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('bitacora').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó una propuesta de mejora`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('improvement-inserted', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.put('/bitacora/solicitud/edit', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idDocumentReception = req.body.idDocumentReception;
+    const _id = req.body._id;
+    delete req.body.idDocumentReception;
+    const informationRequest = req.body;
+    let usuario = req.body['usuarioActualizacion'];
+    const query = { "_id": new mongodb_1.ObjectId(idDocumentReception), "solicitudes._id": _id };
+    const updateDocument = {
+        $set: { "solicitudes.$": informationRequest }
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('bitacora').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó un elemento de solicitud de información`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('information-request-edited', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.put('/bitacora/reunion/edit', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idDocumentReception = req.body.idDocumentReception;
+    const _id = req.body._id;
+    delete req.body.idDocumentReception;
+    const reunion = req.body;
+    reunion['asistentes'] = JSON.parse(req.body['asistentes']);
+    let files = JSON.parse(req.body['files']);
+    let usuario = req.body['usuarioActualizacion'];
+    if (req.files) {
+        let newFiles = req.files;
+        for (let index = 0; index < newFiles.length; ++index) {
+            files.push({
+                'user': usuario,
+                'originalname': newFiles[index].originalname,
+                'mimetype': newFiles[index].mimetype,
+                'filename': newFiles[index].filename,
+                'path': newFiles[index].path,
+                'size': newFiles[index].size,
+                'uploadDate': new Date().toLocaleString()
+            });
+        }
+    }
+    req.body['files'] = files;
+    const query = { "_id": new mongodb_1.ObjectId(idDocumentReception), "reuniones._id": _id };
+    const updateDocument = {
+        $set: { 'reuniones.$': reunion }
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('bitacora').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó una reunión`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('meeting-edited', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.put('/bitacora/queja/edit', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idDocumentReception = req.body.idDocumentReception;
+    const _id = req.body._id;
+    delete req.body.idDocumentReception;
+    const queja = req.body;
+    let usuario = req.body['usuarioActualizacion'];
+    const query = { "_id": new mongodb_1.ObjectId(idDocumentReception), "quejas._id": _id };
+    const updateDocument = {
+        $set: { 'quejas.$': queja }
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('bitacora').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó una reunión`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('complain-edited', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.put('/bitacora/propuestasMejora/edit', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idDocumentReception = req.body.idDocumentReception;
+    const _id = req.body._id;
+    delete req.body.idDocumentReception;
+    const improvement = req.body;
+    let usuario = req.body['usuarioActualizacion'];
+    const query = { "_id": new mongodb_1.ObjectId(idDocumentReception), "propuestasMejora._id": _id };
+    const updateDocument = {
+        $set: { 'propuestasMejora.$': improvement }
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('bitacora').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó una propuesta de mejora`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('improvement-edited', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.get('/bitacora/solicitud/:idDocumentReception/:idInformationRequest', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { idDocumentReception, idInformationRequest } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const dicumentReception = yield mongodb.db.collection('bitacora').findOne({ "_id": new mongodb_1.ObjectId(idDocumentReception), "solicitudes._id": idInformationRequest });
+    const informationRequest = dicumentReception['solicitudes'].find((x) => x._id === idInformationRequest);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        informationRequest
+    }));
+}));
+app.get('/bitacora/reunion/:idDocumentReception/:idMeeting', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { idDocumentReception, idMeeting } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const dicumentReception = yield mongodb.db.collection('bitacora').findOne({ "_id": new mongodb_1.ObjectId(idDocumentReception), "reuniones._id": idMeeting });
+    const meeting = dicumentReception['reuniones'].find((x) => x._id === idMeeting);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        meeting
+    }));
+}));
+app.get('/bitacora/queja/:idDocumentReception/:idComplain', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { idDocumentReception, idComplain } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const dicumentReception = yield mongodb.db.collection('bitacora').findOne({ "_id": new mongodb_1.ObjectId(idDocumentReception), "quejas._id": idComplain });
+    const complain = dicumentReception['quejas'].find((x) => x._id === idComplain);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        complain
+    }));
+}));
+app.get('/bitacora/propuestasMejora/:idDocumentReception/:idImprovement', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { idDocumentReception, idImprovement } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const dicumentReception = yield mongodb.db.collection('bitacora').findOne({ "_id": new mongodb_1.ObjectId(idDocumentReception), "propuestasMejora._id": idImprovement });
+    const improvement = dicumentReception['propuestasMejora'].find((x) => x._id === idImprovement);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        improvement
     }));
 }));
 app.put('/bitacora/delete', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -285,7 +575,7 @@ app.post('/solicitudinformacion', token.verify, multer_1.default.array('document
     yield mongodb.db.collection('solicitudes-informacion').insertOne(req.body, function (err, result) {
         return __awaiter(this, void 0, void 0, function* () {
             //envío de comunicación a todos los clientes conectados
-            let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó un nuevo elemento de solicitud de información`, username: usuario };
+            let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó un nuevo elemento de solicitud de información`, username: usuario };
             const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
             io.emit('alta-solicitud-informacion', insert.insertedId);
             res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
@@ -437,7 +727,8 @@ app.get('/products/buscar/:criterio', (req, res) => __awaiter(void 0, void 0, vo
     }));
 }));
 app.post('/reunion', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    let body = req.body;
+    const reunion = req.body;
+    reunion['asistentes'] = JSON.parse(req.body['asistentes']);
     let usuario = req.body['usuarioCreacion'];
     let filesArray = [];
     if (req.files) {
@@ -446,6 +737,7 @@ app.post('/reunion', token.verify, multer_1.default.array('documents'), (req, re
         let index, len;
         for (index = 0, len = files.length; index < len; ++index) {
             filesArray.push({
+                'user': usuario,
                 'originalname': data[index].originalname,
                 'mimetype': data[index].mimetype,
                 'filename': data[index].filename,
@@ -456,16 +748,13 @@ app.post('/reunion', token.verify, multer_1.default.array('documents'), (req, re
         }
         req.body['files'] = filesArray;
     }
-    yield mongodb.db.collection('reuniones').insertOne(req.body, function (err, result) {
-        return __awaiter(this, void 0, void 0, function* () {
-            let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó una reunión`, username: usuario };
-            const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
-            io.emit('alta-reunion', insert.insertedId);
-            res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
-                result
-            }));
-        });
-    });
+    const result = yield mongodb.db.collection('reuniones').insertOne(reunion);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó una reunión`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('meeting-inserted', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
 }));
 app.get('/reunion', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const reuniones = yield mongodb.db.collection('reuniones').find({ "activo": "1" }).sort({ "fecha": -1 }).toArray();
@@ -486,12 +775,14 @@ app.put('/reunion', token.verify, multer_1.default.array('documents'), (req, res
     const id = req.body._id;
     delete req.body._id;
     const reunion = req.body;
+    reunion['asistentes'] = JSON.parse(req.body['asistentes']);
     let files = JSON.parse(req.body['files']);
     let usuario = req.body['usuarioActualizacion'];
     if (req.files) {
         let newFiles = req.files;
         for (let index = 0; index < newFiles.length; ++index) {
             files.push({
+                'user': usuario,
                 'originalname': newFiles[index].originalname,
                 'mimetype': newFiles[index].mimetype,
                 'filename': newFiles[index].filename,
@@ -502,21 +793,20 @@ app.put('/reunion', token.verify, multer_1.default.array('documents'), (req, res
         }
     }
     req.body['files'] = files;
-    yield mongodb.db.collection('reuniones').update({
-        "_id": new mongodb_1.ObjectId(id)
-    }, 
-    // update 
-    reunion, 
-    // options 
-    {
+    const query = { "_id": new mongodb_1.ObjectId(id) };
+    const updateDocument = {
+        $set: reunion
+    };
+    const options = {
         "multi": false,
-        "upsert": false // insert a new document, if no existing document match the query 
-    });
-    let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó una reunión`, username: usuario };
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('reuniones').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó una reunión`, username: usuario };
     const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
-    io.emit('edicion-reunion', insert.insertedId);
+    io.emit('meeting-edited', insert.insertedId);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
-        reunion
+        result
     }));
 }));
 app.put('/reunion/fileDelete', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -549,7 +839,7 @@ app.put('/reunion/delete', token.verify, (req, res) => __awaiter(void 0, void 0,
         "multi": false,
         "upsert": false // insert a new document, if no existing document match the query 
     });
-    let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${idUsuario} eliminó una reunión`, username: idUsuario };
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${idUsuario} eliminó una reunión`, username: idUsuario };
     const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
     io.emit('delete-reunion', insert.insertedId);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
@@ -652,49 +942,70 @@ app.put('/areas/solicitud/edit', token.verify, multer_1.default.array('documents
 }));
 app.get('/notificaciones', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     // const areas = await mongodb.db.collection('areas').find({}).sort({"nombre" : 1}).toArray();
-    const areas = yield mongodb.db.collection('areas').find({}).sort({ "nombre": 1 }).toArray();
-    let solicitudesAreas = [];
-    areas.map((area) => {
-        area['solicitudes'].map((solicitud) => {
-            if (solicitud['estatus'] === 'Pendiente') {
-                let fechaLimite = moment_1.default(solicitud['fechaLimite']);
-                let diferenciaFechas = `${fechaLimite.diff(new Date, 'days')} días`;
-                let numDiferenciaFechas = fechaLimite.diff(new Date, 'days');
-                return {
-                    tipo: 'Solicitud a área para informe',
-                    fecha: fechaLimite.format('DD/MM/YYYY HH:mm'),
-                    diferenciaFechas: diferenciaFechas,
-                    numDiferenciaFechas: numDiferenciaFechas,
-                    texto: `${solicitud['nombre']} - ${area['nombre']}`
-                };
-            }
-        }).forEach((area) => {
-            if (area) {
-                solicitudesAreas.push(area);
-            }
-        });
-    });
-    const solicitudesInformacion = yield mongodb.db.collection('solicitudes-informacion').find({ 'activo': '1' }).sort({ "fechaRecepcion": -1 }).toArray();
-    let solicitudesTermino = [];
-    solicitudesInformacion.map((solicitud) => {
-        if (solicitud['estatus'] === 'Pendiente') {
-            let fechaLimite = moment_1.default(solicitud['fechaLimite']);
-            let diferenciaFechas = `${fechaLimite.diff(new Date, 'days')} días`;
-            let numDiferenciaFechas = fechaLimite.diff(new Date, 'days');
-            return {
-                tipo: 'Solicitud de información',
-                fecha: fechaLimite.format('DD/MM/YYYY HH:mm'),
-                diferenciaFechas: diferenciaFechas,
-                numDiferenciaFechas: numDiferenciaFechas,
-                texto: `${solicitud['solicitud']} - ${solicitud['solicitante']}`
-            };
+    // const areas = await mongodb.db.collection('areas').find({}).sort({"nombre" : 1}).toArray()
+    // let solicitudesAreas: any[] = [] 
+    // areas.map((area: any) => {
+    //     area['solicitudes'].map((solicitud: any) => {
+    //         if(solicitud['estatus'] === 'Pendiente'){
+    //             let fechaLimite = moment(solicitud['fechaLimite'])
+    //             let diferenciaFechas = `${fechaLimite.diff(new Date, 'days')} días`
+    //             let numDiferenciaFechas = fechaLimite.diff(new Date, 'days')
+    //             return {
+    //                 tipo: 'Solicitud a área para informe',
+    //                 fecha: fechaLimite.format('DD/MM/YYYY HH:mm'),
+    //                 diferenciaFechas: diferenciaFechas,
+    //                 numDiferenciaFechas: numDiferenciaFechas,
+    //                 texto: `${solicitud['nombre']} - ${area['nombre']}`
+    //             }
+    //         }
+    //     }).forEach((area: any) => {
+    //         if(area){
+    //             solicitudesAreas.push(area)
+    //         }
+    //     })
+    // })
+    // const solicitudesInformacion = await mongodb.db.collection('solicitudes-informacion').find({'activo': '1'}).sort({"fechaRecepcion" : -1}).toArray();
+    // let solicitudesTermino: any[] = []
+    // solicitudesInformacion.map((solicitud: any) => {
+    //     if(solicitud['estatus'] === 'Pendiente'){
+    //         let fechaLimite = moment(solicitud['fechaLimite'])
+    //         let diferenciaFechas = `${fechaLimite.diff(new Date, 'days')} días`
+    //         let numDiferenciaFechas = fechaLimite.diff(new Date, 'days')
+    //         return{
+    //             tipo: 'Solicitud de información',
+    //             fecha: fechaLimite.format('DD/MM/YYYY HH:mm'),
+    //             diferenciaFechas: diferenciaFechas,
+    //             numDiferenciaFechas: numDiferenciaFechas,
+    //             texto: `${solicitud['solicitud']} - ${solicitud['solicitante']}`
+    //         }
+    //     }
+    // }).forEach((solicitud: any) => {
+    //     if(solicitud){
+    //         solicitudesTermino.push(solicitud)
+    //     }
+    // })
+    //let notificaciones = solicitudesAreas.concat(solicitudesTermino)
+    const documentsReception = yield mongodb.db.collection('bitacora').find({ 'activo': '1' }).toArray();
+    const listRequestInformation = [];
+    documentsReception.map((reception) => {
+        if (reception.solicitudes) {
+            reception.solicitudes.map((solicitud) => {
+                if (solicitud['estatus'] === 'Pendiente') {
+                    let fechaLimite = moment_1.default(solicitud['fechaLimite']);
+                    let diferenciaFechas = `${fechaLimite.diff(new Date, 'days')} días`;
+                    let numDiferenciaFechas = fechaLimite.diff(new Date, 'days');
+                    listRequestInformation.push({
+                        tipo: 'Solicitud de información',
+                        fecha: fechaLimite.format('DD/MM/YYYY HH:mm'),
+                        diferenciaFechas: diferenciaFechas,
+                        numDiferenciaFechas: numDiferenciaFechas,
+                        texto: `${solicitud['solicitud']} - ${reception['nombre']}`
+                    });
+                }
+            });
         }
-    }).forEach((solicitud) => {
-        if (solicitud) {
-            solicitudesTermino.push(solicitud);
-        }
     });
-    let notificaciones = solicitudesAreas.concat(solicitudesTermino);
+    let notificaciones = listRequestInformation;
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         notificaciones
     }));
@@ -821,17 +1132,10 @@ app.get('/contactosInforme', token.verify, (req, res) => __awaiter(void 0, void 
     }));
 }));
 app.post('/sendmail', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    // let email = {
-    //     from: 'antonio.amador@poderjudicial-gto.gob.mx',
-    //     to: 'amador.barajas.antonio@gmail.com',
-    //     subject: 'Nuevo mensaje de usuario',
-    //     html: `Test`
-    // }
     let email = req.body;
     transporter.sendMail(email, (error, info) => {
         if (error) {
             console.log("Error al enviar email");
-            console.log("Correo enviado correctamente");
             res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
                 error
             }));
@@ -857,7 +1161,14 @@ app.put('/confirmarAsistenciaPublic', (req, res) => __awaiter(void 0, void 0, vo
         "upsert": false
     };
     const result = yield mongodb.db.collection('contactos').updateOne(query, updateDocument, options);
-    let notificacion = { fecha: moment_1.default(new Date()).format('DD/MM/YYYY HH:mm'), text: `${contacto['nombre']} ha confirmado su asistencia al informe.`, username: contacto.nombre };
+    let textoNotificacion;
+    if (contacto.confirmacionAsistencia === 'Si') {
+        textoNotificacion = `${contacto['nombre']} ha confirmado su asistencia al informe.`;
+    }
+    else {
+        textoNotificacion = `${contacto['nombre']} ha confirmado su NO asistencia al informe.`;
+    }
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: textoNotificacion, username: contacto.nombre };
     const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
     io.emit('confirmacion-asistencia-informe', insert.insertedId);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
@@ -903,7 +1214,7 @@ app.put('/subsistemas', token.verify, multer_1.default.array('documents'), (req,
         result
     }));
 }));
-app.post('/combinardocumentos', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.post('/combinardocumentos', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     let documentos = req.body;
     var fs = require('fs');
     var path = require('path');
@@ -918,6 +1229,164 @@ app.post('/combinardocumentos', (req, res) => __awaiter(void 0, void 0, void 0, 
         fs.writeFile(filePath, data, function (err) {
             res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
                 filename
+            }));
+        });
+    });
+}));
+app.post('/generartarjetacumpeanos', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const id = req.body._id;
+    delete req.body._id;
+    let cumpleanios = req.body;
+    let file;
+    if (req.files) {
+        let data = req.files;
+        file = data[0];
+    }
+    let felicitaciones = [];
+    if (cumpleanios.felicitaciones != '') {
+        felicitaciones = JSON.parse(cumpleanios['felicitaciones']);
+    }
+    const options = {
+        quality: 100,
+        density: 1000,
+        saveFilename: file.filename,
+        savePath: "uploads/felicitaciones",
+        format: "jpg",
+        width: 778,
+        height: 1100
+    };
+    const storeAsImage = pdf2pic_1.fromPath(file.path, options);
+    const pageToConvertAsImage = 1;
+    storeAsImage(pageToConvertAsImage).then((resolve) => {
+        let email = {
+            from: 'antonio.amador@poderjudicial-gto.gob.mx',
+            to: cumpleanios.correo,
+            subject: 'Prueba de felicitación',
+            html: `<img style="display: block; margin-left: auto; margin-right: auto;" src="cid:${resolve.name}@poderjudicial-gto.gob.mx" />`,
+            attachments: [{
+                    filename: resolve.name,
+                    path: resolve.path,
+                    cid: `${resolve.name}@poderjudicial-gto.gob.mx`
+                }]
+        };
+        transporter.sendMail(email, (error, info) => __awaiter(void 0, void 0, void 0, function* () {
+            if (error) {
+                console.log("Error al enviar email");
+                res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                    error
+                }));
+            }
+            else {
+                console.log("Correo enviado correctamente");
+                felicitaciones.push({
+                    'uploadDate': moment_1.default().utcOffset('-0600').format('YYYY-MM-DDTHH:mm'),
+                    'user': cumpleanios.usuarioActualizacion,
+                    'mimetype': 'image/jpeg',
+                    'filename': resolve.name,
+                    'path': resolve.path,
+                    'correo': cumpleanios.correo
+                });
+                cumpleanios.felicitaciones = felicitaciones;
+                const query = { "_id": new mongodb_1.ObjectId(id) };
+                const updateDocument = {
+                    $set: cumpleanios
+                };
+                const updateOptions = {
+                    "multi": false,
+                    "upsert": false
+                };
+                const result = yield mongodb.db.collection('cumpleanios').updateOne(query, updateDocument, updateOptions);
+                res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                    info
+                }));
+            }
+        }));
+    });
+}));
+app.get('/cumpleanios', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const cumpleanios = yield mongodb.db.collection('cumpleanios').find().toArray();
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        cumpleanios
+    }));
+}));
+app.get('/cumpleanios/:id', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const cumpleanio = yield mongodb.db.collection('cumpleanios').findOne({ "_id": new mongodb_1.ObjectId(id) });
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        cumpleanio
+    }));
+}));
+app.put('/cumpleanios', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const id = req.body._id;
+    delete req.body._id;
+    const cumpleanio = req.body;
+    const query = { "_id": new mongodb_1.ObjectId(id) };
+    const updateDocument = {
+        $set: cumpleanio
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('cumpleanios').updateOne(query, updateDocument, options);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.post('/cumpleanios', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    delete req.body._id;
+    yield mongodb.db.collection('cumpleanios').insertOne(req.body, function (err, result) {
+        return __awaiter(this, void 0, void 0, function* () {
+            res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                result
+            }));
+        });
+    });
+}));
+app.get('/test', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const productos = yield mongodb.db.collection('Productos').find().toArray();
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        productos
+    }));
+}));
+app.put('/test', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    console.log(req.body);
+    const id = req.body._id;
+    delete req.body._id;
+    const producto = req.body;
+    const query = { "_id": new mongodb_1.ObjectId(id) };
+    const updateDocument = {
+        $set: producto
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('Productos').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que se compró el producto ${producto['producto']}` };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('compra-producto', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.get('/test/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const productos = yield mongodb.db.collection('Productos').find({ "_id": new mongodb_1.ObjectId(id) }).toArray();
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        productos
+    }));
+}));
+app.post('/test', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    delete req.body._id;
+    yield mongodb.db.collection('Productos').insertOne(req.body, function (err, result) {
+        return __awaiter(this, void 0, void 0, function* () {
+            res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                result
             }));
         });
     });
