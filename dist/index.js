@@ -1261,8 +1261,16 @@ app.post('/generartarjetacumpeanos', token.verify, multer_1.default.array('docum
         let email = {
             from: 'antonio.amador@poderjudicial-gto.gob.mx',
             to: cumpleanios.correo,
-            subject: 'Prueba de felicitación',
-            html: `<img style="display: block; margin-left: auto; margin-right: auto;" src="cid:${resolve.name}@poderjudicial-gto.gob.mx" />`,
+            subject: '¡MUCHAS FELICIDADES!',
+            html: `
+            <p>
+            <strong>${cumpleanios.nombre}</strong>
+            <br/>
+            <strong>${cumpleanios.puesto}</strong>
+            <br/>
+            <strong>P r e s e n t e.</strong>
+            </p>
+            <img style="display: block; margin-left: auto; margin-right: auto;" src="cid:${resolve.name}@poderjudicial-gto.gob.mx" />`,
             attachments: [{
                     filename: resolve.name,
                     path: resolve.path,
@@ -1337,6 +1345,7 @@ app.put('/cumpleanios', token.verify, multer_1.default.array('documents'), (req,
 }));
 app.post('/cumpleanios', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     delete req.body._id;
+    req.body['felicitaciones'] = [];
     yield mongodb.db.collection('cumpleanios').insertOne(req.body, function (err, result) {
         return __awaiter(this, void 0, void 0, function* () {
             res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
@@ -1344,6 +1353,54 @@ app.post('/cumpleanios', token.verify, (req, res) => __awaiter(void 0, void 0, v
             }));
         });
     });
+}));
+app.get('/calls', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const calls = yield mongodb.db.collection('calls').find({ activo: '1' }).toArray();
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        calls
+    }));
+}));
+app.post('/calls', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    delete req.body._id;
+    let usuario = req.body['usuarioCreacion'];
+    yield mongodb.db.collection('calls').insertOne(req.body, function (err, result) {
+        return __awaiter(this, void 0, void 0, function* () {
+            let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó una llamada.`, username: usuario };
+            const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+            io.emit('call-inserted', insert.insertedId);
+            res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+                result
+            }));
+        });
+    });
+}));
+app.put('/calls', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const id = req.body._id;
+    delete req.body._id;
+    let usuario = req.body['usuarioActualizacion'];
+    const call = req.body;
+    const query = { "_id": new mongodb_1.ObjectId(id) };
+    const updateDocument = {
+        $set: call
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('calls').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó una llamada.`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('call-edited', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.get('/calls/:id', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { id } = req.params;
+    const call = yield mongodb.db.collection('calls').findOne({ "_id": new mongodb_1.ObjectId(id) });
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        call
+    }));
 }));
 app.get('/test', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const productos = yield mongodb.db.collection('Productos').find().toArray();

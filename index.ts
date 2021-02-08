@@ -83,10 +83,6 @@ app.use(bodyParser.urlencoded({extended: true}));
 //Cors
 app.use( cors({ origin: true, credentials: true}));
 
-
-
-
-
 app.use('/uploads', [token.verify, Express.static(path.resolve('uploads'))])
 //app.use('/uploads', [Express.static(path.resolve('uploads'))])
 
@@ -1874,8 +1870,16 @@ app.post('/generartarjetacumpeanos', token.verify, multer.array('documents'), as
         let email = {
             from: 'antonio.amador@poderjudicial-gto.gob.mx',
             to: cumpleanios.correo,
-            subject: 'Prueba de felicitación',
-            html: `<img style="display: block; margin-left: auto; margin-right: auto;" src="cid:${resolve.name}@poderjudicial-gto.gob.mx" />`,
+            subject: '¡MUCHAS FELICIDADES!',
+            html: `
+            <p>
+            <strong>${cumpleanios.nombre}</strong>
+            <br/>
+            <strong>${cumpleanios.puesto}</strong>
+            <br/>
+            <strong>P r e s e n t e.</strong>
+            </p>
+            <img style="display: block; margin-left: auto; margin-right: auto;" src="cid:${resolve.name}@poderjudicial-gto.gob.mx" />`,
             attachments: [{
                 filename: resolve.name,
                 path: resolve.path,
@@ -1989,6 +1993,7 @@ app.put('/cumpleanios', token.verify, multer.array('documents'), async (req: Req
 app.post('/cumpleanios', token.verify, async (req: Request, res: Response) => {
 
     delete req.body._id
+    req.body['felicitaciones'] = []
     await mongodb.db.collection('cumpleanios').insertOne(req.body, async function (err:any,result:any){
         res.status(200).json(
             apiUtils.BodyResponse(
@@ -2000,6 +2005,77 @@ app.post('/cumpleanios', token.verify, async (req: Request, res: Response) => {
         ); 
     });
 })
+
+app.get('/calls', token.verify, async (req: Request, res: Response) => {
+    const calls = await mongodb.db.collection('calls').find({activo:'1'}).toArray();
+    res.status(200).json(
+         apiUtils.BodyResponse(
+             apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+             {
+                  calls
+             }
+         )
+     );
+});
+
+app.post('/calls', token.verify, async (req: Request, res: Response) => { 
+    delete req.body._id
+    let usuario = req.body['usuarioCreacion']
+    await mongodb.db.collection('calls').insertOne(req.body, async function (err:any,result:any){
+        let notificacion = { fecha: moment().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó una llamada.`, username: usuario }
+        const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
+        io.emit('call-inserted', insert.insertedId);
+        res.status(200).json(
+            apiUtils.BodyResponse(
+                apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+                {
+                     result
+                }
+            )
+        ); 
+    });
+})
+
+app.put('/calls', token.verify, async (req: Request, res: Response) => {
+
+    const id = req.body._id
+    delete req.body._id
+    let usuario = req.body['usuarioActualizacion']
+    const call = req.body
+    const query = { "_id" : new ObjectId(id) }
+    const updateDocument = { 
+        $set : call 
+    }
+    const options = {
+        "multi" : false,
+        "upsert" : false
+    }
+    const result = await mongodb.db.collection('calls').updateOne(query, updateDocument, options)
+    let notificacion = { fecha: moment().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó una llamada.`, username: usuario }
+    const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('call-edited', insert.insertedId);
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                result
+            }
+        )
+    );
+})
+
+app.get('/calls/:id', token.verify, async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const call = await mongodb.db.collection('calls').findOne({ "_id" : new ObjectId(id) });
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                call
+            }
+        )
+    );
+});
 
 app.get('/test', async (req: Request, res: Response) => {
     

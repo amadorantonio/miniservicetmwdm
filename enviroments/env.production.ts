@@ -27,7 +27,7 @@ export default {
     //     DEFAULT_DATABASE: 'presidencia'
     // }
     // MONGODB: {
-    //     HOST: '10.1.200.37',
+    //     HOST: '10.1.200.33',
     //     PORT: 27017,
     //     USER_NAME: 'presidencia',
     //     USER_PASSWORD: 'Tjen-681223!',
