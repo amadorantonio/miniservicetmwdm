@@ -255,6 +255,7 @@ app.post('/bitacora', token.verify, multer.array('documents'), async (req: Reque
 
     let usuario = req.body['usuarioCreacion']
     let filesArray: any[] = []
+    req.body['seguimiento'] = JSON.parse(req.body['seguimiento'])
     if(req.files){
         let data: any = req.files; 
         let files = req.files;
@@ -318,6 +319,7 @@ app.put('/bitacora', token.verify, multer.array('documents'), async (req: Reques
     const bitacora = req.body
     let usuario = req.body['usuarioActualizacion']
     let files = JSON.parse(req.body['files'])
+    bitacora['seguimiento'] = JSON.parse(req.body['seguimiento'])
     if(req.files){
         let newFiles: any = req.files;
         for (let index = 0; index < newFiles.length; ++index) {
@@ -356,13 +358,32 @@ app.put('/bitacora', token.verify, multer.array('documents'), async (req: Reques
     );
 })
 
-app.put('/bitacora/solicitud/add', token.verify, async (req: Request, res: Response) => {
+app.put('/bitacora/solicitud/add', token.verify, multer.array('documents'), async (req: Request, res: Response) => {
 
     const idDocumentReception = req.body.idDocumentReception
     delete req.body.idDocumentReception
     const solicitud = req.body
     solicitud['_id'] = uuidv4()
+    solicitud['seguimiento'] = JSON.parse(req.body['seguimiento'])
     let usuario = req.body['usuarioCreacion']
+
+    let filesArray: any[] = []
+    if(req.files){
+        let data: any = req.files; 
+        let files = req.files;
+        for (let index = 0; index < files.length; ++index) {
+            filesArray.push({
+                'user': usuario,
+                'originalname': data[index].originalname, 
+                'mimetype': data[index].mimetype,
+                'filename': data[index].filename,
+                'path': data[index].path,
+                'size': data[index].size,
+                'uploadDate': new Date().toLocaleString()
+            })
+        }
+        req.body['files'] = filesArray
+    } 
 
     const query = { "_id" : new ObjectId(idDocumentReception) }
     const updateDocument = { 
@@ -494,13 +515,80 @@ app.put('/bitacora/propuestasMejora/add', token.verify, async (req: Request, res
     );
 })
 
-app.put('/bitacora/solicitud/edit', token.verify, async (req: Request, res: Response) => {
+app.put('/bitacora/initiative/add', token.verify, multer.array('documents'), async (req: Request, res: Response) => {
+
+    const idDocumentReception = req.body.idDocumentReception
+    delete req.body.idDocumentReception
+    const initiative = req.body
+    initiative['_id'] = uuidv4()
+    initiative['remitidoA'] = JSON.parse(req.body['remitidoA'])
+    let usuario = req.body['usuarioCreacion']
+
+    let filesArray: any[] = []
+    if(req.files){
+        let data: any = req.files; 
+        let files = req.files;
+        for (let index = 0; index < files.length; ++index) {
+            filesArray.push({
+                'user': usuario,
+                'originalname': data[index].originalname, 
+                'mimetype': data[index].mimetype,
+                'filename': data[index].filename,
+                'path': data[index].path,
+                'size': data[index].size,
+                'uploadDate': new Date().toLocaleString()
+            })
+        }
+        req.body['files'] = filesArray
+    } 
+
+    const query = { "_id" : new ObjectId(idDocumentReception) }
+    const updateDocument = { 
+        $push: {'initiatives': initiative}
+    }
+    const options = {
+        "multi" : false,
+        "upsert" : false
+    }
+    const result = await mongodb.db.collection('bitacora').updateOne(query, updateDocument, options)
+    let notificacion = { fecha: moment().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó una iniciativa`, username: usuario }
+    const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('initiative-inserted', insert.insertedId);
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                result
+            }
+        )
+    );
+})
+
+app.put('/bitacora/solicitud/edit', token.verify, multer.array('documents'), async (req: Request, res: Response) => {
 
     const idDocumentReception = req.body.idDocumentReception
     const _id = req.body._id
     delete req.body.idDocumentReception
     const informationRequest = req.body
+    let files = JSON.parse(req.body['files'])
+    informationRequest['seguimiento'] = JSON.parse(req.body['seguimiento'])
     let usuario = req.body['usuarioActualizacion']
+
+    if(req.files){
+        let newFiles: any = req.files;
+        for (let index = 0; index < newFiles.length; ++index) {
+            files.push({
+                'user': usuario,
+                'originalname': newFiles[index].originalname, 
+                'mimetype': newFiles[index].mimetype,
+                'filename': newFiles[index].filename,
+                'path': newFiles[index].path,
+                'size': newFiles[index].size,
+                'uploadDate': new Date().toLocaleString()
+            })
+        }
+    } 
+    req.body['files'] = files
 
     const query = { "_id" : new ObjectId(idDocumentReception), "solicitudes._id": _id }
     const updateDocument = { 
@@ -632,6 +720,54 @@ app.put('/bitacora/propuestasMejora/edit', token.verify, multer.array('documents
     );
 })
 
+app.put('/bitacora/initiative/update', token.verify, multer.array('documents'), async (req: Request, res: Response) => {
+
+    const idDocumentReception = req.body.idDocumentReception
+    const _id = req.body._id
+    delete req.body.idDocumentReception
+    const initiative = req.body
+    initiative['remitidoA'] = JSON.parse(req.body['remitidoA'])
+    let files = JSON.parse(req.body['files'])
+    let usuario = req.body['usuarioActualizacion']
+
+    if(req.files){
+        let newFiles: any = req.files;
+        for (let index = 0; index < newFiles.length; ++index) {
+            files.push({
+                'user': usuario,
+                'originalname': newFiles[index].originalname, 
+                'mimetype': newFiles[index].mimetype,
+                'filename': newFiles[index].filename,
+                'path': newFiles[index].path,
+                'size': newFiles[index].size,
+                'uploadDate': new Date().toLocaleString()
+            })
+        }
+    } 
+
+    req.body['files'] = files
+    const query = { "_id" : new ObjectId(idDocumentReception), "initiatives._id": _id }
+    const updateDocument = { 
+        $set: {'initiatives.$': initiative}
+    }
+    const options = {
+        "multi" : false,
+        "upsert" : false
+    }
+    const result = await mongodb.db.collection('bitacora').updateOne(query, updateDocument, options)
+    let notificacion = { fecha: moment().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó una iniciativa`, username: usuario }
+    const insert = await mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('initiative-updated', insert.insertedId);
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                result
+            }
+        )
+    );
+})
+
 app.get('/bitacora/solicitud/:idDocumentReception/:idInformationRequest', token.verify, async (req: Request, res: Response) => {
     
     const { idDocumentReception, idInformationRequest } = req.params;
@@ -699,6 +835,24 @@ app.get('/bitacora/propuestasMejora/:idDocumentReception/:idImprovement', token.
             apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
             {
                 improvement
+            } 
+        )
+    );
+});
+
+app.get('/bitacora/initiative/:idDocumentReception/:idInitiative', token.verify, async (req: Request, res: Response) => {
+    
+    const { idDocumentReception, idInitiative } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const dicumentReception = await mongodb.db.collection('bitacora').findOne({ "_id" : new ObjectId(idDocumentReception), "initiatives._id": idInitiative });
+    const initiative = dicumentReception['initiatives'].find((x: { _id: string; }) => x._id === idInitiative)
+
+    res.status(200).json(
+        apiUtils.BodyResponse(
+            apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
+            {
+                initiative
             } 
         )
     );

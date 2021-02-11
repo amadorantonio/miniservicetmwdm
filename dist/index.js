@@ -184,6 +184,7 @@ app.get('/bitacoraCharts', token.verify, (req, res) => __awaiter(void 0, void 0,
 app.post('/bitacora', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     let usuario = req.body['usuarioCreacion'];
     let filesArray = [];
+    req.body['seguimiento'] = JSON.parse(req.body['seguimiento']);
     if (req.files) {
         let data = req.files;
         let files = req.files;
@@ -228,6 +229,7 @@ app.put('/bitacora', token.verify, multer_1.default.array('documents'), (req, re
     const bitacora = req.body;
     let usuario = req.body['usuarioActualizacion'];
     let files = JSON.parse(req.body['files']);
+    bitacora['seguimiento'] = JSON.parse(req.body['seguimiento']);
     if (req.files) {
         let newFiles = req.files;
         for (let index = 0; index < newFiles.length; ++index) {
@@ -260,12 +262,30 @@ app.put('/bitacora', token.verify, multer_1.default.array('documents'), (req, re
         result
     }));
 }));
-app.put('/bitacora/solicitud/add', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.put('/bitacora/solicitud/add', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const idDocumentReception = req.body.idDocumentReception;
     delete req.body.idDocumentReception;
     const solicitud = req.body;
     solicitud['_id'] = uuid_1.v4();
+    solicitud['seguimiento'] = JSON.parse(req.body['seguimiento']);
     let usuario = req.body['usuarioCreacion'];
+    let filesArray = [];
+    if (req.files) {
+        let data = req.files;
+        let files = req.files;
+        for (let index = 0; index < files.length; ++index) {
+            filesArray.push({
+                'user': usuario,
+                'originalname': data[index].originalname,
+                'mimetype': data[index].mimetype,
+                'filename': data[index].filename,
+                'path': data[index].path,
+                'size': data[index].size,
+                'uploadDate': new Date().toLocaleString()
+            });
+        }
+        req.body['files'] = filesArray;
+    }
     const query = { "_id": new mongodb_1.ObjectId(idDocumentReception) };
     const updateDocument = {
         $push: { 'solicitudes': solicitud }
@@ -367,12 +387,69 @@ app.put('/bitacora/propuestasMejora/add', token.verify, (req, res) => __awaiter(
         result
     }));
 }));
-app.put('/bitacora/solicitud/edit', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.put('/bitacora/initiative/add', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idDocumentReception = req.body.idDocumentReception;
+    delete req.body.idDocumentReception;
+    const initiative = req.body;
+    initiative['_id'] = uuid_1.v4();
+    initiative['remitidoA'] = JSON.parse(req.body['remitidoA']);
+    let usuario = req.body['usuarioCreacion'];
+    let filesArray = [];
+    if (req.files) {
+        let data = req.files;
+        let files = req.files;
+        for (let index = 0; index < files.length; ++index) {
+            filesArray.push({
+                'user': usuario,
+                'originalname': data[index].originalname,
+                'mimetype': data[index].mimetype,
+                'filename': data[index].filename,
+                'path': data[index].path,
+                'size': data[index].size,
+                'uploadDate': new Date().toLocaleString()
+            });
+        }
+        req.body['files'] = filesArray;
+    }
+    const query = { "_id": new mongodb_1.ObjectId(idDocumentReception) };
+    const updateDocument = {
+        $push: { 'initiatives': initiative }
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('bitacora').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} agregó una iniciativa`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('initiative-inserted', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
+app.put('/bitacora/solicitud/edit', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const idDocumentReception = req.body.idDocumentReception;
     const _id = req.body._id;
     delete req.body.idDocumentReception;
     const informationRequest = req.body;
+    let files = JSON.parse(req.body['files']);
+    informationRequest['seguimiento'] = JSON.parse(req.body['seguimiento']);
     let usuario = req.body['usuarioActualizacion'];
+    if (req.files) {
+        let newFiles = req.files;
+        for (let index = 0; index < newFiles.length; ++index) {
+            files.push({
+                'user': usuario,
+                'originalname': newFiles[index].originalname,
+                'mimetype': newFiles[index].mimetype,
+                'filename': newFiles[index].filename,
+                'path': newFiles[index].path,
+                'size': newFiles[index].size,
+                'uploadDate': new Date().toLocaleString()
+            });
+        }
+    }
+    req.body['files'] = files;
     const query = { "_id": new mongodb_1.ObjectId(idDocumentReception), "solicitudes._id": _id };
     const updateDocument = {
         $set: { "solicitudes.$": informationRequest }
@@ -472,6 +549,45 @@ app.put('/bitacora/propuestasMejora/edit', token.verify, multer_1.default.array(
         result
     }));
 }));
+app.put('/bitacora/initiative/update', token.verify, multer_1.default.array('documents'), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const idDocumentReception = req.body.idDocumentReception;
+    const _id = req.body._id;
+    delete req.body.idDocumentReception;
+    const initiative = req.body;
+    initiative['remitidoA'] = JSON.parse(req.body['remitidoA']);
+    let files = JSON.parse(req.body['files']);
+    let usuario = req.body['usuarioActualizacion'];
+    if (req.files) {
+        let newFiles = req.files;
+        for (let index = 0; index < newFiles.length; ++index) {
+            files.push({
+                'user': usuario,
+                'originalname': newFiles[index].originalname,
+                'mimetype': newFiles[index].mimetype,
+                'filename': newFiles[index].filename,
+                'path': newFiles[index].path,
+                'size': newFiles[index].size,
+                'uploadDate': new Date().toLocaleString()
+            });
+        }
+    }
+    req.body['files'] = files;
+    const query = { "_id": new mongodb_1.ObjectId(idDocumentReception), "initiatives._id": _id };
+    const updateDocument = {
+        $set: { 'initiatives.$': initiative }
+    };
+    const options = {
+        "multi": false,
+        "upsert": false
+    };
+    const result = yield mongodb.db.collection('bitacora').updateOne(query, updateDocument, options);
+    let notificacion = { fecha: moment_1.default().utcOffset('-0600').format('DD/MM/YYYY HH:mm'), text: `Le informamos que ${usuario} editó una iniciativa`, username: usuario };
+    const insert = yield mongodb.db.collection('notificaciones').insertOne(notificacion);
+    io.emit('initiative-updated', insert.insertedId);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        result
+    }));
+}));
 app.get('/bitacora/solicitud/:idDocumentReception/:idInformationRequest', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { idDocumentReception, idInformationRequest } = req.params;
     res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
@@ -510,6 +626,16 @@ app.get('/bitacora/propuestasMejora/:idDocumentReception/:idImprovement', token.
     const improvement = dicumentReception['propuestasMejora'].find((x) => x._id === idImprovement);
     res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
         improvement
+    }));
+}));
+app.get('/bitacora/initiative/:idDocumentReception/:idInitiative', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const { idDocumentReception, idInitiative } = req.params;
+    res.header("Access-Control-Allow-Origin", "*"); //Indicar el dominio a dar acceso
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    const dicumentReception = yield mongodb.db.collection('bitacora').findOne({ "_id": new mongodb_1.ObjectId(idDocumentReception), "initiatives._id": idInitiative });
+    const initiative = dicumentReception['initiatives'].find((x) => x._id === idInitiative);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        initiative
     }));
 }));
 app.put('/bitacora/delete', token.verify, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
