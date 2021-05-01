@@ -40,7 +40,6 @@ io.on('connection', cliente => {
 
 app.post('/test', async (req: Request, res: Response) => {
     let message = req.body['message']
-    console.log(message)
     io.emit('testsocket', message);
     res.status(200).json(
         apiUtils.BodyResponse(
@@ -53,9 +52,7 @@ app.post('/test', async (req: Request, res: Response) => {
 });
 
 app.get('/test', async (req: Request, res: Response) => {
-    let message = req.body['message']
-    console.log(message)
-    io.emit('testsocket', message);
+    let message: any = {'message': 'Prueba exitosa'}
     res.status(200).json(
         apiUtils.BodyResponse(
             apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', 
