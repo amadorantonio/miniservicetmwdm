@@ -70,6 +70,14 @@ app.post('/test', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         message
     }));
 }));
+app.get('/test', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    let message = req.body['message'];
+    console.log(message);
+    io.emit('testsocket', message);
+    res.status(200).json(apiUtils.BodyResponse(api_utils_1.apiStatusEnum.Succes, 'OK', 'La solicitud ha tenido exito', {
+        message
+    }));
+}));
 httpServer.listen(env_production_1.default.API.PORT, () => __awaiter(void 0, void 0, void 0, function* () {
     debug.express(`El servidor ${color.express('Express')} se inició ${color.succes('correctamente')} en el puerto ${color.info(env_production_1.default.API.PORT)}`);
 }));
